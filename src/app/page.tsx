@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search, Play, Star, Calendar, Tv, Loader2, ChevronLeft, Film, Flame, Server } from "lucide-react";
+import { Search, Play, Star, Calendar, Tv, Loader2, ChevronLeft, Film, Flame, Server, Code2, ChevronDown, ChevronUp, Copy, Check } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -92,6 +92,9 @@ interface SourcesPayload {
   server: string;
   provider: string;
   qualities?: Quality[];
+  /** Raw upstream payload — exposed in the "Show raw response" panel */
+  raw?: unknown;
+  rawMulti?: Record<string, unknown>;
 }
 
 type View =
@@ -423,101 +426,24 @@ export default function Home() {
             onWatch={(ep) => setView({ kind: "watch", id: view.id, ep })}
           />
         ) : view.kind === "watch" ? (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setView({ kind: "details", id: view.id })}
-              >
-                <ChevronLeft className="mr-1 h-4 w-4" /> Back
-              </Button>
-              <div className="flex items-center gap-2">
-                {servers.length > 0 && (
-                  <Select value={server} onValueChange={setServer}>
-                    <SelectTrigger className="h-8 w-36 border-white/10 bg-white/5 text-xs">
-                      <Server className="mr-1 h-3 w-3" />
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {servers.map((s) => (
-                        <SelectItem key={s.id} value={s.id}>
-                          {s.label || s.id} {s.default ? "(default)" : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                <Select value={sourceType} onValueChange={(v) => setSourceType(v as "sub" | "dub")}>
-                  <SelectTrigger className="h-8 w-20 border-white/10 bg-white/5 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="sub">Sub</SelectItem>
-                    <SelectItem value="dub">Dub</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="text-sm text-zinc-400">
-              {info ? titleStr(info.title) : "Loading…"} — Episode {view.ep}
-              {currentEp?.title && ` · ${currentEp.title}`}
-              {sources && (
-                <Badge variant="outline" className="ml-2 text-[10px]">
-                  {sources.server} · {primarySource?.type?.toUpperCase()}
-                </Badge>
-              )}
-            </div>
-
-            {sourcesLoading ? (
-              <div className="flex aspect-video w-full items-center justify-center rounded-xl bg-black text-sm text-zinc-500">
-                <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading stream from {activeProvider?.label}…
-              </div>
-            ) : primarySource ? (
-              <MediaPlayer
-                source={primarySource}
-                qualities={primarySource.type === "mp4" ? mp4Qualities : sources?.qualities}
-                subtitles={sources?.subtitles || []}
-                skips={sources?.skips}
-                poster={info?.banner || info?.coverImage?.large}
-                title={`${titleStr(info?.title)} — Ep ${view.ep}`}
-                onEnded={onNextEp}
-              />
-            ) : (
-              <div className="flex aspect-video w-full items-center justify-center rounded-xl bg-black text-sm text-zinc-500">
-                No stream available. Try a different server.
-              </div>
-            )}
-
-            {/* Episode picker below the player */}
-            {episodes && episodes.length > 0 && (
-              <div className="mt-4">
-                <h3 className="mb-2 text-sm font-semibold text-zinc-300">Episodes</h3>
-                <ScrollArea className="max-h-72 rounded-lg border border-white/10 bg-white/5 p-2">
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
-                    {episodes.map((e) => (
-                      <button
-                        key={e.sourceId}
-                        onClick={() => setView({ kind: "watch", id: view.id, ep: e.number })}
-                        className={cn(
-                          "rounded-md border px-2 py-1.5 text-xs font-medium transition",
-                          e.number === view.ep
-                            ? "border-rose-500 bg-rose-500/20 text-white"
-                            : "border-white/10 bg-white/5 text-zinc-300 hover:border-white/30 hover:bg-white/10"
-                        )}
-                      >
-                        Ep {e.displayNumber || e.number}
-                        {e.filler && (
-                          <span className="ml-1 text-[10px] text-amber-400">filler</span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </div>
-            )}
-          </div>
+          <WatchView
+            info={info}
+            view={view}
+            setView={setView}
+            episodes={episodes}
+            currentEp={currentEp}
+            servers={servers}
+            setServer={setServer}
+            server={server}
+            sourceType={sourceType}
+            setSourceType={setSourceType}
+            sourcesLoading={sourcesLoading}
+            sources={sources}
+            primarySource={primarySource}
+            mp4Qualities={mp4Qualities}
+            activeProvider={activeProvider}
+            onNextEp={onNextEp}
+          />
         ) : null}
       </main>
 
@@ -850,5 +776,385 @@ function DetailsView({
         )}
       </section>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Watch view — player + raw response panel + episode picker         */
+/* ------------------------------------------------------------------ */
+
+interface WatchViewProps {
+  info: AnimeInfo | null;
+  view: { kind: "watch"; id: string; ep: number };
+  setView: (v: View) => void;
+  episodes: Episode[] | null;
+  currentEp?: Episode;
+  servers: ServerInfo[];
+  setServer: (s: string) => void;
+  server: string;
+  sourceType: "sub" | "dub";
+  setSourceType: (t: "sub" | "dub") => void;
+  sourcesLoading: boolean;
+  sources: SourcesPayload | null;
+  primarySource?: StreamSource;
+  mp4Qualities: Quality[];
+  activeProvider?: ProviderMeta;
+  onNextEp: () => void;
+}
+
+function WatchView({
+  info,
+  view,
+  setView,
+  episodes,
+  currentEp,
+  servers,
+  setServer,
+  server,
+  sourceType,
+  setSourceType,
+  sourcesLoading,
+  sources,
+  primarySource,
+  mp4Qualities,
+  activeProvider,
+  onNextEp,
+}: WatchViewProps) {
+  const [showRaw, setShowRaw] = useState(false);
+
+  return (
+    <div className="space-y-5">
+      {/* Top bar — back + server + sub/dub selectors */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setView({ kind: "details", id: view.id })}
+        >
+          <ChevronLeft className="mr-1 h-4 w-4" /> Back to details
+        </Button>
+        <div className="flex items-center gap-2">
+          {servers.length > 0 && (
+            <Select value={server} onValueChange={setServer}>
+              <SelectTrigger className="h-9 w-40 border-white/10 bg-white/5 text-xs">
+                <Server className="mr-1.5 h-3.5 w-3.5 text-zinc-400" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {servers.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.label || s.id} {s.default ? "(default)" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <Select value={sourceType} onValueChange={(v) => setSourceType(v as "sub" | "dub")}>
+            <SelectTrigger className="h-9 w-24 border-white/10 bg-white/5 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="sub">Sub</SelectItem>
+              <SelectItem value="dub">Dub</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Title + status badge */}
+      <div className="flex flex-wrap items-baseline gap-2 text-sm text-zinc-300">
+        <span className="text-base font-semibold text-white">
+          {info ? titleStr(info.title) : "Loading…"}
+        </span>
+        <span className="text-zinc-500">·</span>
+        <span>Episode {view.ep}</span>
+        {currentEp?.title && (
+          <>
+            <span className="text-zinc-500">·</span>
+            <span className="italic text-zinc-400">{currentEp.title}</span>
+          </>
+        )}
+        {sources && primarySource && (
+          <Badge
+            variant="outline"
+            className="ml-1 border-white/15 bg-white/5 text-[10px] font-mono text-zinc-300"
+          >
+            {sources.server} · {primarySource.type?.toUpperCase()}
+          </Badge>
+        )}
+      </div>
+
+      {/* Player card */}
+      <div className="overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/50 shadow-2xl shadow-black/50">
+        {sourcesLoading ? (
+          <div className="flex aspect-video w-full items-center justify-center bg-black text-sm text-zinc-500">
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+            Loading stream from {activeProvider?.label}…
+          </div>
+        ) : primarySource ? (
+          <MediaPlayer
+            source={primarySource}
+            qualities={primarySource.type === "mp4" ? mp4Qualities : sources?.qualities}
+            subtitles={sources?.subtitles || []}
+            skips={sources?.skips}
+            poster={info?.banner || info?.coverImage?.large}
+            title={`${titleStr(info?.title)} — Ep ${view.ep}`}
+            onEnded={onNextEp}
+          />
+        ) : (
+          <div className="flex aspect-video w-full items-center justify-center bg-black text-sm text-zinc-500">
+            No stream available. Try a different server.
+          </div>
+        )}
+      </div>
+
+      {/* Action row — show raw response toggle */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant={showRaw ? "default" : "outline"}
+          size="sm"
+          onClick={() => setShowRaw((s) => !s)}
+          className="font-mono text-xs"
+        >
+          <Code2 className="mr-1.5 h-3.5 w-3.5" />
+          {showRaw ? "Hide raw response" : "Show raw response"}
+          {showRaw ? <ChevronUp className="ml-1 h-3 w-3" /> : <ChevronDown className="ml-1 h-3 w-3" />}
+        </Button>
+        {sources?.raw !== undefined && (
+          <Badge variant="outline" className="text-[10px] text-zinc-400">
+            {sources?.rawMulti
+              ? `${Object.keys(sources.rawMulti).length} upstreams probed`
+              : "raw payload attached"}
+          </Badge>
+        )}
+        <a
+          href={`/api/scrape/raw?provider=${sources?.provider || activeProvider?.id}&id=${view.id}&ep=${view.ep}&server=${server}&type=${sourceType}`}
+          target="_blank"
+          rel="noreferrer"
+          className="ml-auto text-xs text-zinc-400 underline-offset-4 hover:text-zinc-200 hover:underline"
+        >
+          Open /api/scrape/raw ↗
+        </a>
+      </div>
+
+      {/* Raw response panel — collapsible */}
+      {showRaw && (
+        <RawResponsePanel
+          raw={sources?.raw}
+          rawMulti={sources?.rawMulti}
+          provider={sources?.provider || activeProvider?.id || "unknown"}
+          animeId={view.id}
+          ep={view.ep}
+          server={server}
+          streamType={sourceType}
+        />
+      )}
+
+      {/* Episode picker */}
+      {episodes && episodes.length > 0 && (
+        <div>
+          <h3 className="mb-2 text-sm font-semibold text-zinc-300">Episodes</h3>
+          <ScrollArea className="max-h-72 rounded-lg border border-white/10 bg-white/5 p-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
+              {episodes.map((e) => (
+                <button
+                  key={e.sourceId}
+                  onClick={() => setView({ kind: "watch", id: view.id, ep: e.number })}
+                  className={cn(
+                    "rounded-md border px-2 py-1.5 text-xs font-medium transition",
+                    e.number === view.ep
+                      ? "border-rose-500 bg-rose-500/20 text-white"
+                      : "border-white/10 bg-white/5 text-zinc-300 hover:border-white/30 hover:bg-white/10"
+                  )}
+                >
+                  Ep {e.displayNumber || e.number}
+                  {e.filler && (
+                    <span className="ml-1 text-[10px] text-amber-400">filler</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </ScrollArea>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Raw response panel — pretty-printed JSON with copy button         */
+/* ------------------------------------------------------------------ */
+
+interface RawResponsePanelProps {
+  raw?: unknown;
+  rawMulti?: Record<string, unknown>;
+  provider: string;
+  animeId: string;
+  ep: number;
+  server: string;
+  streamType: "sub" | "dub";
+}
+
+function RawResponsePanel({
+  raw,
+  rawMulti,
+  provider,
+  animeId,
+  ep,
+  server,
+  streamType,
+}: RawResponsePanelProps) {
+  const [copied, setCopied] = useState(false);
+  const [activeTab, setActiveTab] = useState<"raw" | "rawMulti" | "unified">("raw");
+
+  // If raw is missing but rawMulti exists, default to rawMulti tab.
+  useEffect(() => {
+    if (raw == null && rawMulti && Object.keys(rawMulti).length > 0) {
+      setActiveTab("rawMulti");
+    }
+  }, [raw, rawMulti]);
+
+  const payload = useMemo(() => {
+    if (activeTab === "raw") return raw;
+    if (activeTab === "rawMulti") return rawMulti;
+    // For unified, the panel doesn't have access — show metadata instead.
+    return {
+      provider,
+      animeId,
+      episode: ep,
+      server,
+      streamType,
+      note: "Use the /api/scrape/raw endpoint to see the unified sources + raw side by side.",
+    };
+  }, [activeTab, raw, rawMulti, provider, animeId, ep, server, streamType]);
+
+  const jsonString = useMemo(() => {
+    try {
+      return payload == null ? "null" : JSON.stringify(payload, null, 2);
+    } catch {
+      return String(payload);
+    }
+  }, [payload]);
+
+  const onCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(jsonString);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* ignore */
+    }
+  }, [jsonString]);
+
+  const tabs: Array<{ id: "raw" | "rawMulti" | "unified"; label: string; count?: number }> = [
+    { id: "raw", label: "raw" },
+    { id: "rawMulti", label: "rawMulti", count: rawMulti ? Object.keys(rawMulti).length : undefined },
+    { id: "unified", label: "meta" },
+  ];
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-white/10 bg-zinc-950">
+      {/* Header — tabs + actions */}
+      <div className="flex items-center justify-between border-b border-white/10 bg-white/5 px-3 py-2">
+        <div className="flex items-center gap-1">
+          {tabs.map((t) => {
+            const disabled =
+              (t.id === "raw" && raw == null) ||
+              (t.id === "rawMulti" && (!rawMulti || Object.keys(rawMulti).length === 0));
+            return (
+              <button
+                key={t.id}
+                onClick={() => !disabled && setActiveTab(t.id)}
+                disabled={disabled}
+                className={cn(
+                  "rounded-md px-2.5 py-1 font-mono text-[11px] transition",
+                  activeTab === t.id
+                    ? "bg-zinc-100 text-zinc-900"
+                    : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200",
+                  disabled && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-zinc-400"
+                )}
+              >
+                {t.label}
+                {t.count !== undefined && (
+                  <span className="ml-1 text-[9px] opacity-70">({t.count})</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="hidden font-mono text-[10px] text-zinc-500 sm:inline">
+            {provider} · ep{ep} · {server}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onCopy}
+            className="h-7 px-2 font-mono text-[11px]"
+          >
+            {copied ? (
+              <>
+                <Check className="mr-1 h-3 w-3 text-emerald-400" /> Copied
+              </>
+            ) : (
+              <>
+                <Copy className="mr-1 h-3 w-3" /> Copy
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* JSON body */}
+      <div className="max-h-[28rem] overflow-auto">
+        <pre
+          className="p-4 font-mono text-[11px] leading-relaxed text-zinc-300"
+          dangerouslySetInnerHTML={{ __html: syntaxHighlight(jsonString) }}
+        />
+      </div>
+
+      {/* Footer — direct API link */}
+      <div className="border-t border-white/10 bg-white/5 px-3 py-2">
+        <a
+          href={`/api/scrape/raw?provider=${provider}&id=${encodeURIComponent(animeId)}&ep=${ep}&server=${encodeURIComponent(server)}&type=${streamType}`}
+          target="_blank"
+          rel="noreferrer"
+          className="font-mono text-[10px] text-zinc-400 underline-offset-4 hover:text-zinc-200 hover:underline"
+        >
+          GET /api/scrape/raw?provider={provider}&id={animeId}&ep={ep}&server={server}&type={streamType} ↗
+        </a>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Tiny JSON syntax highlighter — wraps tokens in <span> tags with colors.
+ * Operates on the pretty-printed JSON string, so it's safe to render with
+ * dangerouslySetInnerHTML inside a <pre><code> block.
+ */
+function syntaxHighlight(json: string): string {
+  // Escape HTML first
+  const esc = json
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  return esc.replace(
+    /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+\-]?\d+)?)/g,
+    (match) => {
+      let cls = "text-amber-300"; // number
+      if (/^"/.test(match)) {
+        if (/:$/.test(match)) {
+          cls = "text-sky-400"; // key
+        } else {
+          cls = "text-emerald-300"; // string
+        }
+      } else if (/true|false/.test(match)) {
+        cls = "text-fuchsia-400"; // boolean
+      } else if (/null/.test(match)) {
+        cls = "text-zinc-500"; // null
+      }
+      return `<span class="${cls}">${match}</span>`;
+    }
   );
 }

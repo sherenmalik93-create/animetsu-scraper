@@ -14,6 +14,7 @@ import {
   resolveSources,
   resolveStreamUrl,
   parseMasterPlaylist,
+  getSources as getAnimetsuRawSources,
   ANIMETSU_API_BASE,
   SWIFTSTREAM_PROXY,
 } from "@/lib/animetsu/client";
@@ -128,6 +129,16 @@ export const animetsuProvider: Provider = {
 
   async getSources(opts): Promise<UnifiedSources> {
     const { id, epNum, server = "kite", sourceType = "sub" } = opts;
+
+    // Fetch the raw upstream payload first so we can attach it to the
+    // unified response — this is what the "Show raw response" panel shows.
+    const rawUpstream = await getAnimetsuRawSources({
+      watchId: id,
+      epNum,
+      server,
+      sourceType,
+    }).catch(() => null);
+
     const resolved = await resolveSources({
       watchId: id,
       epNum,
@@ -173,6 +184,7 @@ export const animetsuProvider: Provider = {
       server: resolved.server,
       provider: "animetsu",
       qualities,
+      raw: rawUpstream,
     };
   },
 };

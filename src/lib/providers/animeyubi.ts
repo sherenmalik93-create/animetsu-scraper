@@ -184,11 +184,51 @@ export const animeyubiProvider: Provider = {
       // Sort by quality descending (1080p first)
       .sort((a, b) => qualityRank(b.quality) - qualityRank(a.quality));
 
+    /**
+     * Raw upstream payload — the full animeyubi episode document, including:
+     *   - All videos (sub + dub, mp4 + hls) with their kwik.cx URLs
+     *   - Episode metadata (title, id, next/previous pointers)
+     *   - The full anime document (synopsis, genres, episode list, studios)
+     *
+     * This is what the UI's "Show raw response" panel surfaces so developers
+     * can see exactly what animeyubi returned before normalization.
+     */
+    const rawPayload = {
+      provider: "animeyubi",
+      api: `${ANIMEYUBI_BASE}/api/v4/pahe/episodes/${epId}/`,
+      animeId: id,
+      episodeId: epId,
+      episodeNumber: epNum,
+      streamType: sourceType,
+      server,
+      episode: ep,
+      // Re-shape into the user's preferred MegaPlay-style format so the
+      // raw panel is easy to scan — one entry per (sub/dub, mp4/hls) combo
+      // with hls_url / mp4_url / embed_url / subtitles / variants fields.
+      normalized: videos.map((v) => ({
+        anilist_id: null, // animeyubi doesn't expose AniList IDs
+        episode: epNum,
+        stream_type: /\beng\b/i.test(v.title || "") ? "dub" : "sub",
+        provider: "Kwik",
+        server_id: v.id,
+        cdn_host: "kwik.cx",
+        hls_url: v.video_type === "hls" ? v.url : null,
+        mp4_url: v.video_type === "mp4" ? v.url : null,
+        rmvb_url: null,
+        stream_format: v.video_type,
+        quality: parseQuality(v.title),
+        embed_url: v.url,
+        video_title: v.title,
+        errors: v.errors,
+      })),
+    };
+
     return {
       sources,
       subtitles: [],
       server,
       provider: "animeyubi",
+      raw: rawPayload,
     };
   },
 };

@@ -130,6 +130,20 @@ export interface UnifiedSources {
   provider: ProviderId;
   /** Quality levels parsed from the master playlist (if HLS) */
   qualities?: { label: string; resolution: string; url: string }[];
+  /**
+   * Raw upstream payload — the original JSON the provider's API returned,
+   * before any normalization. Surfaced via `/api/scrape/raw` and the UI's
+   * "Show raw response" panel so developers can see exactly what the
+   * upstream gave us (provider name, server id, cdn host, variants,
+   * skip markers, subtitles, embed URLs, etc.).
+   */
+  raw?: unknown;
+  /**
+   * Per-provider raw responses when multiple upstreams were probed in
+   * parallel (e.g. anikuro hits 11 providers and picks the first hit).
+   * Keyed by upstream provider name.
+   */
+  rawMulti?: Record<string, unknown>;
 }
 
 /* ------------------------------------------------------------------ */

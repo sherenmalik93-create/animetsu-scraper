@@ -220,7 +220,7 @@ export const anikuroProvider: Provider = {
     const wantedKey = sourceType === "dub" ? "dub" : "sub";
     const fallbackKey = sourceType === "dub" ? "sub" : "dub";
 
-    const candidates: { provider: string; sources: AnikuroSourceEntry[]; subtitles: AnikuroSubtitle[]; isMp4: boolean }[] = [];
+    const candidates: { provider: string; sources: AnikuroSourceEntry[]; subtitles: AnikuroSubtitle[]; isMp4: boolean; raw: unknown }[] = [];
     for (const attempt of attempts) {
       const data = attempt.payload;
       if (!data) continue;
@@ -233,6 +233,7 @@ export const anikuroProvider: Provider = {
           sources: variant.sources,
           subtitles: variant.subtitles || [],
           isMp4,
+          raw: data,
         });
       }
     }
@@ -241,12 +242,20 @@ export const anikuroProvider: Provider = {
     candidates.sort((a, b) => (a.isMp4 === b.isMp4 ? 0 : a.isMp4 ? -1 : 1));
     const chosen = candidates[0] || null;
 
+    // Capture every provider's raw upstream response for the developer panel.
+    const rawMulti: Record<string, unknown> = {};
+    for (const attempt of attempts) {
+      if (attempt.payload) rawMulti[attempt.provider] = attempt.payload;
+    }
+
     if (!chosen) {
       return {
         sources: [],
         subtitles: [],
         server: server || "auto",
         provider: "anikuro",
+        rawMulti,
+        raw: rawMulti,
       };
     }
 
@@ -290,6 +299,8 @@ export const anikuroProvider: Provider = {
       subtitles,
       server: chosen.provider,
       provider: "anikuro",
+      raw: chosen.raw,
+      rawMulti,
     };
   },
 };
