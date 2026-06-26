@@ -1,0 +1,23 @@
+services:
+  animetsu-scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: animetsu-scraper:latest
+    container_name: animetsu-scraper
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Override the upstream API base if it ever moves
+      ANIMETSU_API_BASE: "https://animetsu.live/v2/api/anime"
+      SWIFTSTREAM_PROXY: "https://swiftstream.top/proxy"
+      # Optional: route through a self-hosted cors-anywhere when CF challenges us
+      FALLBACK_PROXY: ""
+      NODE_ENV: production
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/scrape/recent?per_page=1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s

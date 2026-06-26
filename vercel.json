@@ -1,0 +1,23 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "bun run build",
+  "devCommand": "bun run dev",
+  "installCommand": "bun install",
+  "regions": ["hkg1", "sin1", "iad1", "sfo1"],
+  "functions": {
+    "src/app/api/proxy/m3u8/route.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "src/app/api/scrape/sources/route.ts": {
+      "maxDuration": 30,
+      "memory": 512
+    },
+    "src/app/api/scrape/info/route.ts": {
+      "maxDuration": 30,
+      "memory": 512
+    }
+  },
+  "crons": []
+}
