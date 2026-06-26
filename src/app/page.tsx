@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search, Play, Star, Calendar, Tv, Loader2, ChevronLeft, Film, Flame, Server, Code2, ChevronDown, ChevronUp, Copy, Check } from "lucide-react";
+import { Search, Play, Star, Calendar, Tv, Loader2, ChevronLeft, Film, Flame, Server, Code2, ChevronDown, ChevronUp, Copy, Check, BookOpen } from "lucide-react";
+import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -374,6 +375,15 @@ export default function Home() {
               <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-zinc-500" />
             )}
           </div>
+
+          <Link
+            href="/docs"
+            className="hidden shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:bg-white/10 hover:text-white sm:flex"
+            title="API documentation"
+          >
+            <BookOpen className="h-3.5 w-3.5" />
+            API Docs
+          </Link>
         </div>
       </header>
 
