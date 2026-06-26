@@ -4,6 +4,7 @@ import { CodeBlock } from "@/components/docs/code-block";
 import { CodeTabs } from "@/components/docs/code-tabs";
 import { ParamTable } from "@/components/docs/param-table";
 import { DocsSidebar } from "@/components/docs/docs-sidebar";
+import { ApiTester } from "@/components/docs/api-tester";
 
 export const metadata = {
   title: "API Docs — Animetsu Scraper",
@@ -15,6 +16,7 @@ const SIDEBAR_SECTIONS = [
   {
     title: "Getting Started",
     items: [
+      { id: "try-it", label: "Try It Live" },
       { id: "overview", label: "Overview" },
       { id: "base-url", label: "Base URL" },
       { id: "authentication", label: "Authentication" },
@@ -122,6 +124,27 @@ export default function DocsPage() {
               </a>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* Try It Live — full-width section above the sidebar/content split */}
+      <section id="try-it" className="scroll-mt-20 border-b border-zinc-800 bg-zinc-950">
+        <div className="mx-auto max-w-7xl px-6 py-12">
+          <div className="mb-6 max-w-2xl">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Interactive Playground
+            </div>
+            <h2 className="mb-2 text-3xl font-bold text-white">Try It Live</h2>
+            <p className="text-zinc-400">
+              Pick an endpoint, fill in the parameters, and hit{" "}
+              <span className="font-semibold text-zinc-200">Send</span>. When you
+              fire a <code className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-emerald-400">/sources</code>{" "}
+              request, a real player spins up below the response so you can watch
+              the stream you just resolved — no separate page, no copy-paste.
+            </p>
+          </div>
+          <ApiTester />
         </div>
       </section>
 
