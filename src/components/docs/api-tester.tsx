@@ -491,6 +491,7 @@ export function ApiTester() {
                 {[
                   { label: "Frieren · animetsu · ep 1", values: { id: "14682", ep: "1", server: "kite", type: "sub", provider: "animetsu" } },
                   { label: "Frieren · animeyubi · ep 1", values: { id: "", ep: "1", server: "kwik-mp4", type: "sub", provider: "animeyubi" } },
+                  { label: "Frieren · miruro · ep 1", values: { id: "al:154587", ep: "1", server: "pewe", type: "sub", provider: "miruro" } },
                 ].map((ex) => (
                   <button
                     key={ex.label}

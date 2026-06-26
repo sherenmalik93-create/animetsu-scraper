@@ -98,7 +98,7 @@ export default function DocsPage() {
           <div className="max-w-3xl">
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs text-zinc-400">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              v1 · Stable · 10 endpoints · 3 providers
+              v1.3.0 · Stable · 10 endpoints · 4 providers
             </div>
             <h1 className="mb-4 text-4xl font-bold tracking-tight text-white sm:text-5xl">
               Anime Scraper API
@@ -162,14 +162,14 @@ export default function DocsPage() {
             <h2 className="mb-3 text-2xl font-bold text-white">Overview</h2>
             <p className="mb-4 text-zinc-400">
               The Animetsu Scraper API is a self-hostable Next.js backend that
-              abstracts three independent anime streaming providers behind a
+              abstracts four independent anime streaming providers behind a
               single unified interface. You write one client, point it at this
               API, and you can swap providers at runtime with a single query
               parameter — no code changes required.
             </p>
             <p className="mb-4 text-zinc-400">
               Each provider wraps a different upstream site (animetsu.live,
-              anikuro.ru, animeyubi.com), normalizes its response into the
+              anikuro.ru, animeyubi.com, miruro.to), normalizes its response into the
               unified TypeScript types documented below, and exposes the raw
               upstream JSON alongside the normalized data so you can inspect
               exactly what the provider returned. All HLS / MP4 / subtitle URLs
@@ -177,7 +177,7 @@ export default function DocsPage() {
               them directly.
             </p>
             <div className="grid gap-4 sm:grid-cols-3">
-              <StatCard label="Providers" value="3" sub="animetsu · anikuro · animeyubi" />
+              <StatCard label="Providers" value="4" sub="animetsu · anikuro · animeyubi · miruro" />
               <StatCard label="Endpoints" value="10" sub="REST · JSON · cached" />
               <StatCard label="Latency" value="<2s" sub="p50 for full search→play flow" />
             </div>
@@ -426,6 +426,14 @@ curl -s "https://your-deployment.example.com/api/scrape/sources?id=12345&ep=1&se
       "accent": "from-emerald-500 to-teal-500",
       "supportsDub": true,
       "defaultServer": "kwik-mp4"
+    },
+    {
+      "id": "miruro",
+      "label": "Miruro",
+      "description": "AniList-native · 7 streaming providers · Sub/Dub · Skip markers",
+      "accent": "from-sky-500 to-indigo-500",
+      "supportsDub": true,
+      "defaultServer": "bonk"
     }
   ]
 }`}
@@ -528,6 +536,13 @@ console.log(res.results[0].title.preferred);`,
                   <code className="text-emerald-400">animeyubi</code> — returns
                   minimal metadata (title + cover image only). Use{" "}
                   <code className="font-mono text-zinc-400">/info</code> to get the full document.
+                </li>
+                <li>
+                  <code className="text-emerald-400">miruro</code> — AniList-native:
+                  returns full AniList metadata (banner, genres, studios, trailer)
+                  in search results. IDs are prefixed with{" "}
+                  <code className="font-mono text-zinc-400">al:</code> (e.g.{" "}
+                  <code className="font-mono text-zinc-400">al:154587</code>).
                 </li>
               </ul>
             </div>
@@ -1236,7 +1251,7 @@ curl "https://your-deployment.example.com/api/proxy/m3u8?url=https%3A%2F%2Fcdn.m
             <CodeBlock
               language="typescript"
               filename="types.ts"
-              code={`export type ProviderId = "animetsu" | "anikuro" | "animeyubi";
+              code={`export type ProviderId = "animetsu" | "anikuro" | "animeyubi" | "miruro";
 
 export interface UnifiedSearchResult {
   id: string;
@@ -1371,6 +1386,20 @@ export interface UnifiedSources {
           <section id="changelog" className="scroll-mt-20 py-10">
             <h2 className="mb-3 text-2xl font-bold text-white">Changelog</h2>
             <div className="space-y-4">
+              <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-400">
+                    v1.3.0
+                  </span>
+                  <span className="text-sm text-zinc-500">2026-06-27</span>
+                </div>
+                <ul className="space-y-1 text-sm text-zinc-400">
+                  <li>• Added <code className="font-mono text-emerald-400">miruro</code> provider (miruro.to — AniList-native with 7 streaming backends: bonk, ally, pewe, moo, bee, kiwi, hop).</li>
+                  <li>• Implements miruro's encrypted <code className="font-mono text-emerald-400">/api/secure/pipe</code> protocol (base64url envelope + XOR obfuscation + gzip decompression).</li>
+                  <li>• Returns both HLS master playlists (routed through CORS proxy with referer) and iframe embed URLs for CF-protected streams.</li>
+                  <li>• Raw payload includes normalized MegaPlay-style fields (hls_url, mp4_url, embed_url, cdn_host, referer).</li>
+                </ul>
+              </div>
               <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
                 <div className="mb-2 flex items-center gap-2">
                   <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-400">
