@@ -24,14 +24,15 @@ export interface SkipMarkers {
 
 export interface StreamSource {
   url: string;
-  type: "hls" | "mp4" | "master";
+  type: "hls" | "mp4" | "master" | "iframe";
   quality?: string;
   isMaster?: boolean;
   originalUrl?: string;
+  upstreamReferer?: string;
 }
 
 interface MediaPlayerProps {
-  /** The primary source to play (HLS master or MP4) */
+  /** The primary source to play (HLS master, MP4, or iframe embed) */
   source?: StreamSource;
   /** Alternative quality levels (for HLS) */
   qualities?: Quality[];
@@ -76,10 +77,14 @@ export function MediaPlayer({
 
   const isHls = source?.type === "hls" || source?.type === "master";
   const isMp4 = source?.type === "mp4";
+  const isIframe = source?.type === "iframe";
   const masterUrl = source?.url || "";
 
   // (Re)initialise the player whenever the source URL changes
+  // For iframe sources we don't drive a <video> element — kwik.cx / similar
+  // CF-protected embeds are rendered via <iframe> below.
   useEffect(() => {
+    if (isIframe) return;
     const video = videoRef.current;
     if (!video || !masterUrl) return;
 
@@ -217,6 +222,36 @@ export function MediaPlayer({
     return (
       <div className={cn("flex aspect-video w-full items-center justify-center rounded-xl bg-black text-sm text-zinc-500", className)}>
         No stream available.
+      </div>
+    );
+  }
+
+  // Iframe embed (e.g. kwik.cx) — let the upstream's own player handle
+  // playback. This avoids Cloudflare challenges that block server-side
+  // fetching of the underlying m3u8/mp4 URLs.
+  if (isIframe) {
+    return (
+      <div className={cn("relative w-full overflow-hidden rounded-xl bg-black", className)}>
+        <iframe
+          src={masterUrl}
+          title={title || "Player"}
+          className="aspect-video w-full bg-black"
+          allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+          allowFullScreen
+          referrerPolicy="origin"
+        />
+        <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 bg-gradient-to-b from-black/70 to-transparent p-3">
+          <div className="pointer-events-auto truncate text-sm font-medium text-white">
+            {title}
+          </div>
+          <div className="pointer-events-auto">
+            {source.quality && (
+              <span className="rounded bg-black/60 px-2 py-1 text-xs text-white">
+                {source.quality}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
     );
   }

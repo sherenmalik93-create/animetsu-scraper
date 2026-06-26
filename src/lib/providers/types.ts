@@ -13,7 +13,7 @@
  *   3. Done — the UI and API routes pick it up automatically.
  */
 
-export type ProviderId = "animetsu" | "anikuro";
+export type ProviderId = "animetsu" | "anikuro" | "animeyubi";
 
 export interface ProviderMeta {
   id: ProviderId;
@@ -98,10 +98,10 @@ export interface UnifiedServer {
 }
 
 export interface UnifiedStreamSource {
-  /** Proxy-ready URL — drop straight into an HLS player or <video> tag */
+  /** Proxy-ready URL — drop straight into an HLS player, <video> tag, or <iframe> */
   url: string;
-  /** "hls" | "mp4" | "master" */
-  type: "hls" | "mp4" | "master";
+  /** "hls" | "mp4" | "master" | "iframe" (iframe = use the upstream's own player) */
+  type: "hls" | "mp4" | "master" | "iframe";
   quality?: string;
   /** Whether the stream is a master playlist with multiple qualities */
   isMaster?: boolean;

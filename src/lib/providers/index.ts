@@ -8,10 +8,12 @@
 import type { Provider, ProviderId } from "./types";
 import { animetsuProvider } from "./animetsu";
 import { anikuroProvider } from "./anikuro";
+import { animeyubiProvider } from "./animeyubi";
 
 export const providers: Record<ProviderId, Provider> = {
   animetsu: animetsuProvider,
   anikuro: anikuroProvider,
+  animeyubi: animeyubiProvider,
 };
 
 export const providerList: Provider[] = Object.values(providers);
@@ -24,5 +26,5 @@ export function isProviderId(id: string): id is ProviderId {
   return id in providers;
 }
 
-export { animetsuProvider, anikuroProvider };
+export { animetsuProvider, anikuroProvider, animeyubiProvider };
 export * from "./types";
