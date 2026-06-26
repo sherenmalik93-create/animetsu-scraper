@@ -1,24 +1,26 @@
-# Animetsu Scraper
+# Anime Scraper
 
-A self-hostable scraper + web UI for **[animetsu.live](https://animetsu.live/)** that extracts **m3u8 (HLS) stream URLs** and **WebVTT subtitle files**, enriched with **AniList** metadata (characters, studios, recommendations, trailer, trending).
+A self-hostable, multi-provider anime scraper + web UI that extracts **m3u8 (HLS) streams**, **MP4 streams**, and **WebVTT subtitles** from multiple upstream anime sites, enriched with **AniList** metadata.
 
 Built with **Next.js 16 · TypeScript · Tailwind CSS · shadcn/ui · hls.js**. Deploys to **Vercel** in one click or runs anywhere with **Docker**.
 
-> ⚠️ **Educational project.** Streams are proxied from animetsu.live for personal use only. The maintainer does not host any media content. Support the official release when available in your region.
+> ⚠️ **Educational project.** Streams are proxied from upstream providers for personal use only. The maintainer does not host any media content. Support the official release when available in your region.
 
 ---
 
 ## Features
 
-- 🔍 **Search** — instant debounced search across the entire animetsu.live catalog
-- 🎬 **HLS player** — hls.js-powered player with quality switcher (360p / 720p / 1080p) and VTT subtitle selector
-- 📺 **4 streaming servers** — `kite` (soft sub, default) · `dio` · `sage` · `meg`
+- 🎛️ **Multi-provider architecture** — switch between upstreams from the UI with one click
+  - **Animetsu** — `animetsu.live` · soft sub · 4 servers (kite / dio / sage / meg) · HLS m3u8
+  - **Anikuro** — `anikuro.ru` · aggregates 11 upstreams (animeverse / animegg / anikoto / animepahe / reanime / animedao / anidb / animedunya / animeverse / allani / senshi / animix) · MP4 + HLS
+- 🔍 **Search** — instant debounced search across the active provider's catalog
+- 🎬 **Universal media player** — hls.js for HLS, native HTML5 for MP4, with quality switcher and VTT subtitle selector
 - 🅰️ **Sub / Dub toggle** — switch between subtitled and dubbed sources per episode
 - ⏭️ **Skip intro / outro** — auto-detected skip markers surface as in-player buttons
 - 🧠 **AniList enrichment** — characters, studios, recommendations, YouTube trailer, next-airing countdown
 - 🔥 **Trending now** — pulled from the AniList GraphQL API on the home page
 - 🆕 **Recently released** — live from animetsu.live
-- 🛡️ **Cloudflare-friendly** — built-in CORS proxy rewrites all upstream URIs through your own domain, with retry + fallback logic for 403/429/503 challenges
+- 🛡️ **Cloudflare-friendly** — built-in CORS proxy rewrites all upstream URIs through your own domain, with retry + fallback logic for 403/429/503 challenges, and per-upstream Referer support
 - 🐳 **One-command Docker** — `docker compose up` and you're done
 - ▲ **One-click Vercel** — pure Node.js runtime, no native deps
 
@@ -31,36 +33,45 @@ Built with **Next.js 16 · TypeScript · Tailwind CSS · shadcn/ui · hls.js**. 
 │                         Browser (you)                            │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │  /  →  Home (search · trending · recent)                  │   │
+│  │        [Provider switcher: Animetsu ⇄ Anikuro]            │   │
 │  │  ↓ click anime                                           │   │
 │  │  /?anime=<id>  →  Details (info · episodes · trailer)    │   │
 │  │  ↓ click episode                                         │   │
-│  │  /?watch=<id>&ep=<n>  →  HLS Player                       │   │
+│  │  /?watch=<id>&ep=<n>  →  MediaPlayer (HLS or MP4)         │   │
 │  └──────────────────────────────────────────────────────────┘   │
 └───────────────────────────────┬─────────────────────────────────┘
-                                │  fetch (same origin)
+                                │  fetch (same origin, ?provider=…)
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                      Next.js (your domain)                       │
 │                                                                  │
-│  /api/scrape/search      ─┐                                      │
-│  /api/scrape/info         │  ──►  animetsu.live/v2/api/anime/*  │
-│  /api/scrape/episodes     │       (Cloudflare-fronted JSON)     │
-│  /api/scrape/servers      │                                      │
-│  /api/scrape/sources      │  ──►  parses master m3u8 +          │
-│  /api/scrape/recent      ─┘       resolves swiftstream.top URLs │
+│  /api/scrape/providers    →  list of registered providers        │
+│  /api/scrape/search       ─┐                                     │
+│  /api/scrape/info          │                                     │
+│  /api/scrape/episodes      │  →  dispatches to the active        │
+│  /api/scrape/servers       │     provider (animetsu or anikuro)  │
+│  /api/scrape/sources      ─┘                                     │
 │                                                                  │
-│  /api/scrape/anilist     ────►  graphql.anilist.co              │
+│  /api/scrape/anilist      →  AniList GraphQL (enrichment)        │
+│  /api/scrape/recent       →  animetsu recent releases            │
 │                                                                  │
-│  /api/proxy/m3u8?url=…   ────►  swiftstream.top/proxy/oppai/…   │
-│       │                              │                           │
-│       │       ┌──────────────────────┘                           │
-│       │       ▼                                                  │
-│       │   Rewrites all relative URIs in the playlist             │
-│       │   back through /api/proxy/m3u8 so the player             │
-│       │   keeps calling our own origin (CORS-safe).              │
+│  /api/proxy/m3u8?url=…&referer=…                                │
+│       │  Handles both HLS playlists and MP4 streams              │
+│       │  - HLS: rewrites relative URIs through itself            │
+│       │  - MP4: passes through with Range support                │
+│       │  - Sets the right Referer per upstream                   │
 │       ▼                                                          │
-│   Returns application/vnd.apple.mpegurl                          │
-│   or text/vtt for subtitle files                                 │
+│   Provider abstraction:                                          │
+│   ┌──────────────┐  ┌──────────────┐                             │
+│   │  Animetsu    │  │  Anikuro     │                             │
+│   │  /v2/api/    │  │  /api/v1/    │                             │
+│   │  anime/*     │  │  anime/*     │                             │
+│   │              │  │              │                             │
+│   │  ↳ kite      │  │  ↳ 11 upstreams                            │
+│   │  ↳ dio       │  │    tried in parallel                       │
+│   │  ↳ sage      │  │    MP4 preferred                            │
+│   │  ↳ meg       │  │                                              │
+│   └──────────────┘  └──────────────┘                             │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -68,21 +79,24 @@ Built with **Next.js 16 · TypeScript · Tailwind CSS · shadcn/ui · hls.js**. 
 
 | Path | Purpose |
 | --- | --- |
-| `src/lib/animetsu/client.ts` | HTTP client for the animetsu.live JSON API, with retry + CF fallback |
-| `src/lib/animetsu/types.ts` | TypeScript types for all upstream payloads |
+| `src/lib/providers/types.ts` | Unified `Provider` interface — every backend implements this |
+| `src/lib/providers/index.ts` | Provider registry — single source of truth |
+| `src/lib/providers/animetsu.ts` | Animetsu adapter (wraps the animetsu client) |
+| `src/lib/providers/anikuro.ts` | Anikuro adapter (multi-provider fan-out, MP4 preference) |
+| `src/lib/animetsu/client.ts` | Raw HTTP client for animetsu.live |
 | `src/lib/anilist/client.ts` | AniList GraphQL client (cached, rate-limit-friendly) |
-| `src/app/api/scrape/*` | Thin API routes exposing the scraper to the frontend |
-| `src/app/api/proxy/m3u8/route.ts` | CORS proxy that rewrites m3u8 playlist URIs |
-| `src/components/animetsu/hls-player.tsx` | hls.js player with quality + subtitle switcher |
-| `src/app/page.tsx` | Single-page UI: home → details → watch |
+| `src/app/api/scrape/*` | API routes — all accept `?provider=animetsu|anikuro` |
+| `src/app/api/proxy/m3u8/route.ts` | Universal CORS proxy (HLS + MP4 + VTT, per-upstream Referer) |
+| `src/components/animetsu/media-player.tsx` | Universal player — HLS via hls.js, MP4 via native `<video>` |
+| `src/app/page.tsx` | Single-page UI with provider switcher |
 
 ---
 
 ## Quick start (local dev)
 
 ```bash
-git clone <this-repo> animetsu-scraper
-cd animetsu-scraper
+git clone <this-repo> anime-scraper
+cd anime-scraper
 bun install                 # or: npm install / pnpm install
 cp .env.example .env.local  # optional — defaults already work
 bun run dev                 # → http://localhost:3000
@@ -113,78 +127,82 @@ The Dockerfile uses Next.js **standalone output** — the final image is ~150 MB
 
 | Env var | Default | Purpose |
 | --- | --- | --- |
-| `ANIMETSU_API_BASE` | `https://animetsu.live/v2/api/anime` | Override the upstream JSON API base |
-| `SWIFTSTREAM_PROXY` | `https://swiftstream.top/proxy` | Override the m3u8 / subtitle proxy |
+| `ANIMETSU_API_BASE` | `https://animetsu.live/v2/api/anime` | Override the animetsu JSON API base |
+| `SWIFTSTREAM_PROXY` | `https://swiftstream.top/proxy` | Override the animetsu m3u8 / subtitle proxy |
+| `ANIKURO_BASE` | `https://anikuro.ru` | Override the anikuro API base |
+| `ANIKURO_PROXY` | `https://proxy.anikuro.ru` | Override the anikuro MP4 / m3u8 proxy |
 | `FALLBACK_PROXY` | *(empty)* | Optional cors-anywhere-style proxy used when Cloudflare returns a 403/429/503 |
 
 ---
 
 ## API reference
 
-All routes are GET. Responses are JSON unless noted.
+All routes are GET. Responses are JSON unless noted. All `/api/scrape/*` routes accept a `?provider=animetsu|anikuro` query param (defaults to `animetsu`).
 
-### `GET /api/scrape/search?q=<query>`
+### `GET /api/scrape/providers`
 
-Search the animetsu.live catalog.
+Returns the list of registered providers.
 
 ```jsonc
 {
-  "results": [
-    {
-      "id": "6989b89f29cf95f4eb03b4ed",
-      "title": { "romaji": "ONE PIECE", "english": "ONE PIECE", "native": "ONE PIECE" },
-      "cover_image": { "large": "https://s4.anilist.co/..." },
-      "year": 1999,
-      "average_score": 87,
-      "total_eps": null,
-      "genres": ["Action", "Adventure", "Comedy"]
-    }
+  "providers": [
+    { "id": "animetsu", "label": "Animetsu", "description": "…", "defaultServer": "kite", "supportsDub": true },
+    { "id": "anikuro",  "label": "Anikuro",  "description": "…", "defaultServer": "animeverse", "supportsDub": true }
   ]
 }
 ```
 
-### `GET /api/scrape/info?id=<animetsuId>&enrich=1`
+### `GET /api/scrape/search?q=<query>&provider=<id>`
 
-Returns the animetsu anime info, optionally merged with AniList data when `enrich=1` (default).
+Returns `results[]` with the provider-specific id, title, cover image, year, score, etc.
 
-### `GET /api/scrape/episodes?id=<animetsuId>`
+### `GET /api/scrape/info?id=<id>&provider=<id>&enrich=1`
 
-Returns the list of episodes (`ep_num`, `name`, `desc`, `is_filler`, `views`, `aired_at`, `img`).
+Returns the full anime info, optionally merged with AniList data when `enrich=1` (default).
 
-### `GET /api/scrape/servers?id=<animetsuId>&ep=<epNum>`
+### `GET /api/scrape/episodes?id=<id>&provider=<id>`
 
-Returns the available streaming servers: `kite` (default, soft sub) · `dio` · `sage` · `meg`.
+Returns the list of episodes.
 
-### `GET /api/scrape/sources?id=<watchId>&ep=<epNum>&server=kite&type=sub`
+### `GET /api/scrape/servers?id=<id>&ep=<epNum>&provider=<id>`
+
+Returns the available streaming servers for that episode.
+
+- **Animetsu**: `kite` (default, soft sub) · `dio` · `sage` · `meg`
+- **Anikuro**: `animeverse` (default, MP4) · `animegg` · `anikoto` · `animepahe` · `reanime` · `animedao` · `animegg` · `anidb` · `animedunya` · `animeverse` · `allani` · `senshi` · `animix`
+
+### `GET /api/scrape/sources?id=<id>&ep=<epNum>&server=<server>&type=sub|dub&provider=<id>`
 
 Returns a player-ready payload:
 
 ```jsonc
 {
-  "masterUrl": "/api/proxy/m3u8?url=https%3A%2F%2F…",
-  "qualities": [
-    { "label": "360p",  "resolution": "640x360",   "url": "/api/proxy/m3u8?url=…" },
-    { "label": "720p",  "resolution": "1280x720",  "url": "/api/proxy/m3u8?url=…" },
-    { "label": "1080p", "resolution": "1920x1080", "url": "/api/proxy/m3u8?url=…" }
+  "sources": [
+    { "url": "/api/proxy/m3u8?url=…", "type": "master", "quality": "auto", "isMaster": true },
+    { "url": "/api/proxy/m3u8?url=…", "type": "hls",    "quality": "1080p" },
+    // OR
+    { "url": "https://proxy.anikuro.ru/…", "type": "mp4", "quality": "720p" }
   ],
-  "subtitles": [
-    { "lang": "English", "url": "/api/proxy/m3u8?format=vtt&url=…" }
-  ],
+  "subtitles": [{ "lang": "English", "url": "/api/proxy/m3u8?format=vtt&url=…" }],
   "skips": { "intro": { "start": 0, "end": 0 }, "outro": { "start": 0, "end": 0 } },
-  "server": "kite",
-  "needProxy": true
+  "server": "animeverse",
+  "provider": "anikuro",
+  "qualities": [{ "label": "1080p", "resolution": "1920x1080", "url": "…" }]
 }
 ```
 
-### `GET /api/proxy/m3u8?url=<encoded>`
+For anikuro, if `server` is omitted or set to `auto`/`default`, the provider fans out to a curated subset of upstreams in parallel and returns the best playable source (preferring MP4 over HLS).
 
-CORS proxy for upstream m3u8 / segment / VTT URLs. Auto-detects content type:
+### `GET /api/proxy/m3u8?url=<encoded>&referer=<encoded>&format=<vtt|m3u8>`
 
-- `application/vnd.apple.mpegurl` content → rewrites all relative URIs in the playlist back through `/api/proxy/m3u8`
-- `text/vtt` content → passes through with `text/vtt; charset=utf-8`
+Universal CORS proxy for upstream m3u8 / MP4 / VTT URLs. Auto-detects content type:
+
+- `application/vnd.apple.mpegurl` content → rewrites all relative URIs in the playlist back through `/api/proxy/m3u8` (preserving the `&referer=` if provided)
+- `video/mp4` content → streamed through with Range support
+- `text/vtt` content → passed through with `text/vtt; charset=utf-8`
 - Binary segments (TS / fMP4) → streamed through with upstream content-type
 
-Add `&format=vtt` to force subtitle handling, or `&format=m3u8` to force playlist handling.
+The optional `?referer=` param sets the `Referer` header sent to the upstream — required for anikuro HLS streams that come from referer-locked CDNs.
 
 ### `GET /api/scrape/anilist?id=<anilistId>` | `?search=<q>` | `?trending=1`
 
@@ -192,7 +210,38 @@ Direct AniList GraphQL passthrough. Cached for 30 min.
 
 ---
 
-## How the scraper works (under the hood)
+## Adding a new provider
+
+The provider abstraction makes it trivial to add a new upstream site:
+
+1. Create `src/lib/providers/<name>.ts` and implement the `Provider` interface:
+   ```ts
+   export const myProvider: Provider = {
+     meta: { id: "mine", label: "Mine", /* … */ },
+     async search(query) { /* … */ return []; },
+     async getInfo(id) { /* … */ return null; },
+     async getEpisodes(id) { /* … */ return []; },
+     async getServers(id, ep) { /* … */ return []; },  // optional
+     async getSources(opts) { /* … */ return { sources, subtitles, server, provider: "mine" }; },
+   };
+   ```
+2. Register it in `src/lib/providers/index.ts`:
+   ```ts
+   export const providers: Record<ProviderId, Provider> = {
+     animetsu: animetsuProvider,
+     anikuro: anikuroProvider,
+     mine: myProvider,  // ← add here
+   };
+   ```
+3. Add the provider id to the `ProviderId` union type in `src/lib/providers/types.ts`.
+
+The UI and API routes will pick it up automatically — no other changes needed.
+
+---
+
+## How each provider works
+
+### Animetsu
 
 1. The animetsu.live frontend is a Vite SPA. Its main bundle reveals the API base: `window.b = https://animetsu.live/v2` and an axios instance at `ole = ${b}/api`.
 2. All API calls are routed through `${ole}/anime/<key>`. The interesting keys are:
@@ -201,15 +250,21 @@ Direct AniList GraphQL passthrough. Cached for 30 min.
    - `eps/<id>`
    - `servers/<id>/<ep>`
    - `oppai/<id>/<ep>?server=<s>&source_type=sub|dub` ← returns `{ sources, subs, skips }`
-3. The `sources[].url` is a relative path like `/oppai/kite/<token>`. When `need_proxy === true`, the host is `https://swiftstream.top/proxy` — that's the same host used by the official player.
-4. The master playlist returned by swiftstream contains relative token paths for each quality (360p / 720p / 1080p). We parse them and resolve them against the master URL.
-5. Subtitles come back as full `https://swiftstream.top/proxy/oppai/kite/<token>` URLs in **WebVTT** format — ready to drop into a `<track>` element.
-6. Because the browser can't directly fetch `swiftstream.top` from our domain (CORS + occasional CF challenges), we funnel everything through `/api/proxy/m3u8`. The proxy:
-   - Sends a realistic `User-Agent` + `Referer: https://animetsu.live/` so Cloudflare doesn't challenge us
-   - Detects m3u8 content and rewrites every relative URI in the playlist to point back through itself
-   - Sets `Access-Control-Allow-Origin: *` so the browser is happy
+3. The `sources[].url` is a relative path like `/oppai/kite/<token>`. When `need_proxy === true`, the host is `https://swiftstream.top/proxy`.
+4. The master playlist contains relative token paths for each quality (360p / 720p / 1080p).
+5. Subtitles come back as full `https://swiftstream.top/proxy/oppai/kite/<token>` URLs in **WebVTT** format.
 
-This mirrors the approach taken by public anime scraper projects like **Miruro** and **Anikage** (consumer-style aggregators), but is rewritten from scratch in TypeScript with a cleaner separation between scraper library, API layer, and UI.
+### Anikuro
+
+1. Anikuro.ru is a Next.js-style site with a clean JSON API at `/api/v1/*` that aggregates 11 upstream anime providers.
+2. Endpoints used:
+   - `discovery/search?query=<q>` → search
+   - `anime/<id>` → info (id is the AniList id)
+   - `anime/<id>/episodes` → episode list
+   - `sources/<provider>/<animeId>:<epNum>` → stream sources for a specific upstream provider
+3. Stream URLs come back pre-wrapped through `https://proxy.anikuro.ru/<base64>.m3u8|referer?proxy=0` where the base64 decodes to `<streamUrl>|<upstreamReferer>`.
+4. As of 2026-06, anikuro's m3u8 proxy returns HTTP 500, but the **MP4 proxy works** with Range support. The provider prefers MP4 sources (animeverse, animegg) and falls back to HLS (anikoto, animix) routed through our own `/api/proxy/m3u8` with the upstream Referer set.
+5. When `server=auto` (the default), the provider fans out to a curated subset of 4 upstreams in parallel (~600 ms total), then falls back to the remaining 7 if no hit was found.
 
 ---
 
@@ -220,7 +275,7 @@ This mirrors the approach taken by public anime scraper projects like **Miruro**
 | Framework | **Next.js 16** (App Router) | One codebase for API + UI, deploys to Vercel out of the box |
 | Language | **TypeScript 5** | Strict typing for upstream payloads |
 | UI | **Tailwind CSS 4** + **shadcn/ui** | Fast, accessible, themeable |
-| Player | **hls.js** | Industry-standard HLS in pure JS, works on every modern browser |
+| Player | **hls.js** + native HTML5 `<video>` | HLS for adaptive streaming, native for MP4 |
 | State | React hooks (no global store needed) | App is a single-page flow |
 | Caching | In-memory LRU + `Cache-Control` headers | No external cache infra required |
 | Container | **Docker** (Node 22-alpine, standalone) | ~150 MB final image |

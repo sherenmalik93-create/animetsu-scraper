@@ -1,41 +1,59 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search, Play, Star, Calendar, Tv, Loader2, ChevronLeft, Film, Flame } from "lucide-react";
+import { Search, Play, Star, Calendar, Tv, Loader2, ChevronLeft, Film, Flame, Server } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { HlsPlayer, type Quality, type Subtitle, type SkipMarkers } from "@/components/animetsu/hls-player";
+import {
+  MediaPlayer,
+  type Quality,
+  type Subtitle,
+  type SkipMarkers,
+  type StreamSource,
+} from "@/components/animetsu/media-player";
+
+/* ------------------------------------------------------------------ */
+/*  Types — these match the unified provider payloads                 */
+/* ------------------------------------------------------------------ */
+
+interface ProviderMeta {
+  id: string;
+  label: string;
+  description: string;
+  accent: string;
+  supportsDub: boolean;
+  defaultServer: string;
+}
 
 interface SearchResult {
   id: string;
-  title: { romaji?: string; english?: string; native?: string };
-  cover_image?: { large?: string; medium?: string; color?: string };
+  anilistId?: number;
+  malId?: number;
+  title: { romaji?: string; english?: string; native?: string; preferred?: string };
+  coverImage?: { large?: string; medium?: string; small?: string; color?: string; cover?: string; banner?: string };
   banner?: string;
+  description?: string;
   status?: string;
   year?: number;
+  format?: string;
+  genres?: string[];
+  averageScore?: number;
+  totalEpisodes?: number | null;
+  isAdult?: boolean;
+  duration?: number;
+  season?: string;
+  // animetsu legacy fields (kept for backward compat with the old shape)
+  cover_image?: { large?: string; medium?: string; color?: string };
   average_score?: number;
   total_eps?: number | null;
-  genres?: string[];
-  is_adult?: boolean;
-  format?: string;
 }
 
 interface AnimeInfo extends SearchResult {
-  anilist_id?: number;
-  mal_id?: number;
-  description?: string;
-  duration?: number;
-  season?: string;
-  start_date?: string | null;
-  synonyms?: string[];
-  tags?: string[];
-  next_airing_ep?: { airing_at?: number; ep_num?: number; time_left?: number };
   anilist?: {
     characters?: { nodes: { id: number; name: { full: string; native?: string }; image?: { large?: string } }[] };
     studios?: { nodes: { id: number; name: string }[] };
@@ -45,28 +63,35 @@ interface AnimeInfo extends SearchResult {
     favourites?: number;
     trending?: number;
   } | null;
+  next_airing_ep?: { airing_at?: number; ep_num?: number; time_left?: number };
+  synonyms?: string[];
+  tags?: string[];
+  start_date?: string | null;
 }
 
 interface Episode {
-  ep_num: number;
-  name?: string;
-  desc?: string;
-  img?: string;
-  is_filler?: boolean;
-  views?: number;
-  aired_at?: string;
-  id: string;
+  number: number;
+  displayNumber?: string;
+  sourceId: string;
+  title?: string;
+  description?: string;
+  thumbnail?: string;
+  image?: string;
+  airedAt?: string;
+  duration?: number;
+  filler?: boolean;
+  variants?: string[];
 }
 
-interface ServerInfo { id: string; default?: boolean; tip?: string; }
+interface ServerInfo { id: string; label?: string; description?: string; default?: boolean; }
 
 interface SourcesPayload {
-  masterUrl: string;
-  qualities: Quality[];
+  sources: StreamSource[];
   subtitles: Subtitle[];
-  skips: SkipMarkers;
+  skips?: SkipMarkers;
   server: string;
-  needProxy: boolean;
+  provider: string;
+  qualities?: Quality[];
 }
 
 type View =
@@ -74,10 +99,12 @@ type View =
   | { kind: "details"; id: string }
   | { kind: "watch"; id: string; ep: number };
 
-const titleStr = (t?: { romaji?: string; english?: string; native?: string }) =>
-  t?.english || t?.romaji || t?.native || "Unknown";
+const titleStr = (t?: { romaji?: string; english?: string; native?: string; preferred?: string }) =>
+  t?.english || t?.romaji || t?.native || t?.preferred || "Unknown";
 
 export default function Home() {
+  const [providerId, setProviderId] = useState<string>("animetsu");
+  const [providers, setProviders] = useState<ProviderMeta[]>([]);
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
   const [searching, setSearching] = useState(false);
@@ -90,11 +117,35 @@ export default function Home() {
   const [servers, setServers] = useState<ServerInfo[]>([]);
   const [sources, setSources] = useState<SourcesPayload | null>(null);
   const [sourcesLoading, setSourcesLoading] = useState(false);
-  const [server, setServer] = useState("kite");
+  const [server, setServer] = useState<string>("");
   const [sourceType, setSourceType] = useState<"sub" | "dub">("sub");
   const [error, setError] = useState<string | null>(null);
 
-  // Load home page data (trending + recent) on mount
+  // Load provider list on mount
+  useEffect(() => {
+    fetch("/api/scrape/providers")
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d.providers)) {
+          setProviders(d.providers);
+          // Set the default server for the active provider
+          const active = d.providers.find((p: ProviderMeta) => p.id === providerId);
+          if (active?.defaultServer) setServer(active.defaultServer);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // When provider changes, reset state and update default server
+  useEffect(() => {
+    setSearchResults(null);
+    setView({ kind: "home" });
+    const active = providers.find((p) => p.id === providerId);
+    if (active?.defaultServer) setServer(active.defaultServer);
+  }, [providerId, providers]);
+
+  // Load home page data (trending + recent) on mount — only for animetsu
+  // (anikuro has its own trending endpoint)
   useEffect(() => {
     (async () => {
       try {
@@ -115,14 +166,14 @@ export default function Home() {
                   english: (m.title as { english?: string })?.english,
                   romaji: (m.title as { romaji?: string })?.romaji,
                 },
-                cover_image: {
+                coverImage: {
                   large: (m.coverImage as { large?: string })?.large,
                   color: (m.coverImage as { color?: string })?.color,
                 },
-                average_score: (m as { averageScore?: number }).averageScore,
+                averageScore: (m as { averageScore?: number }).averageScore,
                 year: (m as { seasonYear?: number }).seasonYear,
                 format: (m as { format?: string }).format,
-                total_eps: (m as { episodes?: number }).episodes,
+                totalEpisodes: (m as { episodes?: number }).episodes,
               };
             })
           );
@@ -136,7 +187,7 @@ export default function Home() {
     })();
   }, []);
 
-  // Debounced search
+  // Debounced search — uses the active provider
   useEffect(() => {
     if (!query.trim()) {
       setSearchResults(null);
@@ -145,7 +196,7 @@ export default function Home() {
     setSearching(true);
     const t = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/scrape/search?q=${encodeURIComponent(query)}`);
+        const res = await fetch(`/api/scrape/search?q=${encodeURIComponent(query)}&provider=${providerId}`);
         const data = await res.json();
         setSearchResults(Array.isArray(data.results) ? data.results : []);
       } catch {
@@ -155,7 +206,7 @@ export default function Home() {
       }
     }, 350);
     return () => clearTimeout(t);
-  }, [query]);
+  }, [query, providerId]);
 
   // Load details when navigating
   useEffect(() => {
@@ -167,8 +218,8 @@ export default function Home() {
     (async () => {
       try {
         const [infoRes, epsRes] = await Promise.all([
-          fetch(`/api/scrape/info?id=${view.id}`).then((r) => r.json()),
-          fetch(`/api/scrape/episodes?id=${view.id}`).then((r) => r.json()),
+          fetch(`/api/scrape/info?id=${view.id}&provider=${providerId}`).then((r) => r.json()),
+          fetch(`/api/scrape/episodes?id=${view.id}&provider=${providerId}`).then((r) => r.json()),
         ]);
         setInfo(infoRes);
         setEpisodes(Array.isArray(epsRes) ? epsRes : []);
@@ -178,7 +229,7 @@ export default function Home() {
         setInfoLoading(false);
       }
     })();
-  }, [view]);
+  }, [view, providerId]);
 
   // Load servers when entering watch view
   useEffect(() => {
@@ -188,11 +239,14 @@ export default function Home() {
     setSources(null);
     (async () => {
       try {
-        const sRes = await fetch(`/api/scrape/servers?id=${view.id}&ep=${view.ep}`).then((r) => r.json());
+        const sRes = await fetch(`/api/scrape/servers?id=${view.id}&ep=${view.ep}&provider=${providerId}`).then((r) => r.json());
         setServers(Array.isArray(sRes) ? sRes : []);
-        const defaultServer = (Array.isArray(sRes) ? sRes.find((s: ServerInfo) => s.default) : null)?.id || "kite";
-        setServer(defaultServer);
-        await loadSources(view.id, view.ep, defaultServer, sourceType);
+        const defaultSrv = (Array.isArray(sRes) ? sRes.find((s: ServerInfo) => s.default) : null)?.id
+          || (Array.isArray(sRes) && sRes[0]?.id) || "";
+        setServer(defaultSrv);
+        if (defaultSrv) {
+          await loadSources(view.id, view.ep, defaultSrv, sourceType);
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load servers.");
       }
@@ -204,20 +258,20 @@ export default function Home() {
     setError(null);
     setInfoLoading(true);
     try {
-      const res = await fetch(`/api/scrape/search?q=${encodeURIComponent(title)}`);
+      const res = await fetch(`/api/scrape/search?q=${encodeURIComponent(title)}&provider=${providerId}`);
       const data = await res.json();
       const first = data.results?.[0];
       if (first?.id) {
         setView({ kind: "details", id: first.id });
       } else {
-        setError(`No animetsu entry found for "${title}".`);
+        setError(`No entry found for "${title}" on ${providerId}.`);
         setInfoLoading(false);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Search failed.");
       setInfoLoading(false);
     }
-  }, []);
+  }, [providerId]);
 
   const loadSources = useCallback(
     async (id: string, ep: number, srv: string, type: "sub" | "dub") => {
@@ -225,7 +279,7 @@ export default function Home() {
       setSources(null);
       setError(null);
       try {
-        const res = await fetch(`/api/scrape/sources?id=${id}&ep=${ep}&server=${srv}&type=${type}`);
+        const res = await fetch(`/api/scrape/sources?id=${id}&ep=${ep}&server=${srv}&type=${type}&provider=${providerId}`);
         const data = await res.json();
         if (data.error) throw new Error(data.error);
         setSources(data);
@@ -235,26 +289,42 @@ export default function Home() {
         setSourcesLoading(false);
       }
     },
-    []
+    [providerId]
   );
 
   // Reload sources when server or sourceType changes during watch
   useEffect(() => {
-    if (view.kind !== "watch") return;
+    if (view.kind !== "watch" || !server) return;
     loadSources(view.id, view.ep, server, sourceType);
      
   }, [server, sourceType]);
 
   const currentEp = useMemo(
-    () => episodes?.find((e) => e.ep_num === (view.kind === "watch" ? view.ep : -1)),
+    () => episodes?.find((e) => e.number === (view.kind === "watch" ? view.ep : -1)),
     [episodes, view]
   );
 
   const onNextEp = useCallback(() => {
     if (view.kind !== "watch" || !episodes) return;
-    const next = episodes.find((e) => e.ep_num === view.ep + 1);
-    if (next) setView({ kind: "watch", id: view.id, ep: next.ep_num });
+    const next = episodes.find((e) => e.number === view.ep + 1);
+    if (next) setView({ kind: "watch", id: view.id, ep: next.number });
   }, [view, episodes]);
+
+  const activeProvider = providers.find((p) => p.id === providerId);
+
+  // Pick the primary source for the MediaPlayer
+  const primarySource = sources?.sources?.[0];
+  // For MP4 sources, expose all mp4 sources as quality levels
+  const mp4Qualities: Quality[] = useMemo(() => {
+    if (!sources || !primarySource || primarySource.type !== "mp4") return [];
+    return sources.sources
+      .filter((s) => s.type === "mp4")
+      .map((s, i) => ({
+        label: s.quality || `Quality ${i + 1}`,
+        resolution: s.quality || "default",
+        url: s.url,
+      }));
+  }, [sources, primarySource]);
 
   return (
     <div className="min-h-screen flex flex-col bg-zinc-950 text-zinc-100">
@@ -264,18 +334,37 @@ export default function Home() {
             onClick={() => setView({ kind: "home" })}
             className="flex items-center gap-2 font-semibold"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-rose-500 to-orange-500 text-sm font-bold">
+            <div className={cn(
+              "flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br text-sm font-bold",
+              activeProvider?.accent || "from-rose-500 to-orange-500"
+            )}>
               A
             </div>
-            <span className="hidden sm:inline">Animetsu Scraper</span>
+            <span className="hidden sm:inline">Anime Scraper</span>
           </button>
+
+          {/* Provider switcher */}
+          {providers.length > 0 && (
+            <Select value={providerId} onValueChange={setProviderId}>
+              <SelectTrigger className="h-8 w-32 border-white/10 bg-white/5 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {providers.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
 
           <div className="relative ml-auto w-full max-w-md">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search anime…"
+              placeholder={`Search anime on ${activeProvider?.label || "…"}…`}
               className="border-white/10 bg-white/5 pl-9 focus-visible:border-rose-500/50 focus-visible:ring-rose-500/30"
             />
             {searching && (
@@ -292,18 +381,22 @@ export default function Home() {
           </div>
         )}
 
-        {/* SEARCH RESULTS */}
-        {searchResults ? (
+        {/* SEARCH RESULTS — only shown on home view */}
+        {searchResults && view.kind === "home" ? (
           <section>
             <h2 className="mb-4 text-lg font-semibold">
               Search results {searchResults.length > 0 && `(${searchResults.length})`}
             </h2>
             {searchResults.length === 0 ? (
-              <p className="text-sm text-zinc-500">No results found.</p>
+              <p className="text-sm text-zinc-500">No results found on {activeProvider?.label}.</p>
             ) : (
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
                 {searchResults.map((a) => (
-                  <AnimeCard key={a.id} a={a} onClick={() => setView({ kind: "details", id: a.id })} />
+                  <AnimeCard
+                    key={a.id}
+                    a={normalizeSearchResult(a)}
+                    onClick={() => setView({ kind: "details", id: a.id })}
+                  />
                 ))}
               </div>
             )}
@@ -313,8 +406,6 @@ export default function Home() {
             trending={trending}
             recent={recent}
             onPick={(id) => {
-              // Trending items come from AniList and only carry the AniList id.
-              // They are prefixed with "al:" so we can resolve them via search.
               if (id.startsWith("al:")) {
                 const title = decodeURIComponent(id.slice(3));
                 void resolveBySearch(title);
@@ -342,18 +433,21 @@ export default function Home() {
                 <ChevronLeft className="mr-1 h-4 w-4" /> Back
               </Button>
               <div className="flex items-center gap-2">
-                <Select value={server} onValueChange={setServer}>
-                  <SelectTrigger className="h-8 w-32 border-white/10 bg-white/5 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {servers.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.id} {s.default ? "(default)" : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {servers.length > 0 && (
+                  <Select value={server} onValueChange={setServer}>
+                    <SelectTrigger className="h-8 w-36 border-white/10 bg-white/5 text-xs">
+                      <Server className="mr-1 h-3 w-3" />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {servers.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.label || s.id} {s.default ? "(default)" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
                 <Select value={sourceType} onValueChange={(v) => setSourceType(v as "sub" | "dub")}>
                   <SelectTrigger className="h-8 w-20 border-white/10 bg-white/5 text-xs">
                     <SelectValue />
@@ -368,26 +462,31 @@ export default function Home() {
 
             <div className="text-sm text-zinc-400">
               {info ? titleStr(info.title) : "Loading…"} — Episode {view.ep}
-              {currentEp?.name && ` · ${currentEp.name}`}
+              {currentEp?.title && ` · ${currentEp.title}`}
+              {sources && (
+                <Badge variant="outline" className="ml-2 text-[10px]">
+                  {sources.server} · {primarySource?.type?.toUpperCase()}
+                </Badge>
+              )}
             </div>
 
             {sourcesLoading ? (
               <div className="flex aspect-video w-full items-center justify-center rounded-xl bg-black text-sm text-zinc-500">
-                <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading stream…
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading stream from {activeProvider?.label}…
               </div>
-            ) : sources ? (
-              <HlsPlayer
-                masterUrl={sources.masterUrl}
-                qualities={sources.qualities}
-                subtitles={sources.subtitles}
-                skips={sources.skips}
-                poster={info?.banner || info?.cover_image?.large}
+            ) : primarySource ? (
+              <MediaPlayer
+                source={primarySource}
+                qualities={primarySource.type === "mp4" ? mp4Qualities : sources?.qualities}
+                subtitles={sources?.subtitles || []}
+                skips={sources?.skips}
+                poster={info?.banner || info?.coverImage?.large}
                 title={`${titleStr(info?.title)} — Ep ${view.ep}`}
                 onEnded={onNextEp}
               />
             ) : (
               <div className="flex aspect-video w-full items-center justify-center rounded-xl bg-black text-sm text-zinc-500">
-                No stream available.
+                No stream available. Try a different server.
               </div>
             )}
 
@@ -399,17 +498,17 @@ export default function Home() {
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
                     {episodes.map((e) => (
                       <button
-                        key={e.id}
-                        onClick={() => setView({ kind: "watch", id: view.id, ep: e.ep_num })}
+                        key={e.sourceId}
+                        onClick={() => setView({ kind: "watch", id: view.id, ep: e.number })}
                         className={cn(
                           "rounded-md border px-2 py-1.5 text-xs font-medium transition",
-                          e.ep_num === view.ep
+                          e.number === view.ep
                             ? "border-rose-500 bg-rose-500/20 text-white"
                             : "border-white/10 bg-white/5 text-zinc-300 hover:border-white/30 hover:bg-white/10"
                         )}
                       >
-                        Ep {e.ep_num}
-                        {e.is_filler && (
+                        Ep {e.displayNumber || e.number}
+                        {e.filler && (
                           <span className="ml-1 text-[10px] text-amber-400">filler</span>
                         )}
                       </button>
@@ -424,16 +523,37 @@ export default function Home() {
 
       <footer className="mt-auto border-t border-white/10 bg-zinc-950 px-4 py-6 text-center text-xs text-zinc-500">
         <p>
-          Animetsu Scraper · Educational project · Streams are proxied from
-          animetsu.live for personal use only.
+          Anime Scraper · {providers.length} providers ·{" "}
+          {providers.map((p) => p.label).join(" · ")}
         </p>
-        <p className="mt-1">Metadata enriched via AniList GraphQL API.</p>
+        <p className="mt-1">
+          Educational project. Streams proxied from upstream providers for personal use only.
+        </p>
       </footer>
     </div>
   );
 }
 
 /* ------------------------------------------------------------------ */
+
+/** Normalize both the new unified shape and the old animetsu shape to the card shape. */
+function normalizeSearchResult(a: SearchResult): SearchResult {
+  return {
+    id: a.id,
+    title: a.title,
+    coverImage: a.coverImage || (a.cover_image ? { large: a.cover_image.large, color: a.cover_image.color } : undefined),
+    banner: a.banner,
+    status: a.status,
+    year: a.year,
+    format: a.format,
+    genres: a.genres,
+    averageScore: a.averageScore ?? a.average_score,
+    totalEpisodes: a.totalEpisodes ?? a.total_eps,
+    isAdult: a.isAdult,
+    duration: a.duration,
+    season: a.season,
+  };
+}
 
 function HomeView({
   trending,
@@ -471,7 +591,7 @@ function HomeView({
         ) : (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
             {recent.map((a) => (
-              <AnimeCard key={a.id} a={a} onClick={() => onPick(a.id)} />
+              <AnimeCard key={a.id} a={normalizeSearchResult(a)} onClick={() => onPick(a.id)} />
             ))}
           </div>
         )}
@@ -489,7 +609,7 @@ function AnimeCard({
   onClick: () => void;
   trending?: boolean;
 }) {
-  const cover = a.cover_image?.large || a.cover_image?.medium;
+  const cover = a.coverImage?.large || a.coverImage?.cover || a.coverImage?.medium;
   return (
     <button
       onClick={onClick}
@@ -514,9 +634,9 @@ function AnimeCard({
             HOT
           </Badge>
         )}
-        {a.average_score ? (
+        {a.averageScore ? (
           <Badge className="absolute right-1.5 top-1.5 bg-black/70 px-1.5 py-0 text-[10px] text-amber-400">
-            <Star className="mr-0.5 h-2.5 w-2.5 fill-amber-400" /> {a.average_score}
+            <Star className="mr-0.5 h-2.5 w-2.5 fill-amber-400" /> {a.averageScore}
           </Badge>
         ) : null}
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2">
@@ -567,7 +687,6 @@ function DetailsView({
         <ChevronLeft className="mr-1 h-4 w-4" /> Back
       </Button>
 
-      {/* Banner */}
       {info.banner ? (
          
         <img
@@ -578,17 +697,15 @@ function DetailsView({
       ) : null}
 
       <div className="flex flex-col gap-6 sm:flex-row">
-        {/* Cover */}
         <div className="w-full shrink-0 sm:w-48">
           { }
           <img
-            src={info.cover_image?.large || info.cover_image?.medium}
+            src={info.coverImage?.large || info.coverImage?.cover || info.coverImage?.medium}
             alt={titleStr(info.title)}
             className="aspect-[2/3] w-full rounded-lg border border-white/10 object-cover"
           />
         </div>
 
-        {/* Info */}
         <div className="flex-1 space-y-4">
           <div>
             <h1 className="text-2xl font-bold sm:text-3xl">{titleStr(info.title)}</h1>
@@ -605,22 +722,22 @@ function DetailsView({
                 <Calendar className="mr-1 h-3 w-3" /> {info.year}
               </Badge>
             )}
-            {info.total_eps && (
+            {info.totalEpisodes && (
               <Badge variant="outline">
-                <Tv className="mr-1 h-3 w-3" /> {info.total_eps} eps
+                <Tv className="mr-1 h-3 w-3" /> {info.totalEpisodes} eps
               </Badge>
             )}
-            {info.average_score ? (
+            {info.averageScore ? (
               <Badge variant="outline" className="text-amber-400">
-                <Star className="mr-1 h-3 w-3 fill-amber-400" /> {info.average_score}
+                <Star className="mr-1 h-3 w-3 fill-amber-400" /> {info.averageScore}
               </Badge>
             ) : null}
-            {info.is_adult && <Badge variant="destructive">18+</Badge>}
+            {info.isAdult && <Badge variant="destructive">18+</Badge>}
           </div>
 
-          {(info.genres?.length || info.tags?.length) && (
+          {(info.genres?.length) && (
             <div className="flex flex-wrap gap-1.5">
-              {(info.genres || []).slice(0, 8).map((g) => (
+              {info.genres.slice(0, 8).map((g) => (
                 <Badge key={g} variant="secondary" className="text-[10px]">
                   {g}
                 </Badge>
@@ -652,7 +769,6 @@ function DetailsView({
         </div>
       </div>
 
-      {/* AniList trailer */}
       {info.anilist?.trailer?.id && info.anilist.trailer.site === "youtube" && (
         <div className="overflow-hidden rounded-xl border border-white/10 bg-black">
           <iframe
@@ -664,7 +780,6 @@ function DetailsView({
         </div>
       )}
 
-      {/* Recommendations */}
       {info.anilist?.recommendations?.nodes?.length ? (
         <section>
           <h2 className="mb-3 text-lg font-semibold">Recommended</h2>
@@ -695,7 +810,6 @@ function DetailsView({
         </section>
       ) : null}
 
-      {/* Episodes */}
       <section>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold">Episodes</h2>
@@ -710,22 +824,22 @@ function DetailsView({
             <div className="space-y-1">
               {episodes.map((e) => (
                 <button
-                  key={e.id}
-                  onClick={() => onWatch(e.ep_num)}
+                  key={e.sourceId}
+                  onClick={() => onWatch(e.number)}
                   className="flex w-full items-center gap-3 rounded-md border border-white/5 bg-white/5 p-2 text-left transition hover:border-white/20 hover:bg-white/10"
                 >
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-rose-500/20 text-sm font-semibold text-rose-400">
-                    {e.ep_num}
+                    {e.displayNumber || e.number}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <p className="truncate text-sm font-medium">{e.name || `Episode ${e.ep_num}`}</p>
-                      {e.is_filler && (
+                      <p className="truncate text-sm font-medium">{e.title || `Episode ${e.number}`}</p>
+                      {e.filler && (
                         <Badge className="bg-amber-500/20 px-1 py-0 text-[9px] text-amber-400">filler</Badge>
                       )}
                     </div>
-                    {e.desc && (
-                      <p className="line-clamp-1 text-xs text-zinc-500">{e.desc}</p>
+                    {e.description && (
+                      <p className="line-clamp-1 text-xs text-zinc-500">{e.description}</p>
                     )}
                   </div>
                   <Play className="h-4 w-4 text-zinc-500" />

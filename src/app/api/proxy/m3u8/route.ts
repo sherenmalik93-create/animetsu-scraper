@@ -28,13 +28,18 @@ const UPSTREAM_REFERER = "https://animetsu.live/";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-function rewritePlaylistUrls(body: string, baseUrl: string): string {
+function rewritePlaylistUrls(body: string, baseUrl: string, referer?: string): string {
   /**
    * Rewrite relative URIs in an m3u8 playlist so they go back through this proxy.
    * - Lines that are not comments and not blank are URIs (or relative paths).
    * - Some playlists use #EXT-X-KEY with URI="..." that also needs rewriting.
+   *
+   * If a `referer` is provided (used by anikuro m3u8 streams), the rewritten
+   * URLs include `&referer=<encoded>` so each variant request also sends the
+   * right Referer header to the upstream.
    */
   const proxy = "/api/proxy/m3u8?url=";
+  const refererSuffix = referer ? `&referer=${encodeURIComponent(referer)}` : "";
   const lines = body.split(/\r?\n/);
   return lines
     .map((line) => {
@@ -43,10 +48,10 @@ function rewritePlaylistUrls(body: string, baseUrl: string): string {
         // Rewrite URIs inside #EXT-X-KEY / #EXT-X-MEDIA tags
         return line.replace(/URI="([^"]+)"/g, (_m, rawUri: string) => {
           if (/^https?:\/\//i.test(rawUri)) {
-            return `URI="${proxy}${encodeURIComponent(rawUri)}"`;
+            return `URI="${proxy}${encodeURIComponent(rawUri)}${refererSuffix}"`;
           }
           const resolved = new URL(rawUri, baseUrl).href;
-          return `URI="${proxy}${encodeURIComponent(resolved)}"`;
+          return `URI="${proxy}${encodeURIComponent(resolved)}${refererSuffix}"`;
         });
       }
       // Plain URI line
@@ -56,7 +61,7 @@ function rewritePlaylistUrls(body: string, baseUrl: string): string {
       } else {
         absolute = new URL(trimmed, baseUrl).href;
       }
-      return `${proxy}${encodeURIComponent(absolute)}`;
+      return `${proxy}${encodeURIComponent(absolute)}${refererSuffix}`;
     })
     .join("\n");
 }
@@ -64,6 +69,7 @@ function rewritePlaylistUrls(body: string, baseUrl: string): string {
 export async function GET(req: NextRequest) {
   const urlParam = req.nextUrl.searchParams.get("url");
   const format = req.nextUrl.searchParams.get("format"); // "vtt" | "m3u8" | undefined
+  const refererOverride = req.nextUrl.searchParams.get("referer");
   if (!urlParam) {
     return NextResponse.json({ error: "Missing url parameter." }, { status: 400 });
   }
@@ -78,12 +84,24 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "url must be absolute http(s)." }, { status: 400 });
   }
 
+  // Pick the right Referer for this upstream:
+  //   1. Explicit ?referer=... (used by anikuro m3u8 streams)
+  //   2. animetsu.live default (used by animetsu streams)
+  //   3. The proxy's own host (used when proxying anikuro's own proxy URL)
+  const referer = refererOverride
+    ? decodeURIComponent(refererOverride)
+    : target.includes("anikuro.ru")
+    ? "https://anikuro.ru/"
+    : UPSTREAM_REFERER;
+
+  const origin = referer.replace(/\/$/, "");
+
   try {
     const upstream = await fetch(target, {
       headers: {
         "User-Agent": BROWSER_UA,
-        Referer: UPSTREAM_REFERER,
-        Origin: UPSTREAM_REFERER.replace(/\/$/, ""),
+        Referer: referer,
+        Origin: origin,
         Accept: "*/*",
       },
       // We do NOT cache segments; only playlists
@@ -107,7 +125,7 @@ export async function GET(req: NextRequest) {
 
     if (isPlaylist) {
       const body = await upstream.text();
-      const rewritten = rewritePlaylistUrls(body, target);
+      const rewritten = rewritePlaylistUrls(body, target, refererOverride ? referer : undefined);
       return new NextResponse(rewritten, {
         status: 200,
         headers: {

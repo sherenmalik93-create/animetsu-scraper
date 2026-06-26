@@ -1,17 +1,20 @@
 services:
-  animetsu-scraper:
+  anime-scraper:
     build:
       context: .
       dockerfile: Dockerfile
-    image: animetsu-scraper:latest
-    container_name: animetsu-scraper
+    image: anime-scraper:latest
+    container_name: anime-scraper
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
-      # Override the upstream API base if it ever moves
+      # Animetsu provider
       ANIMETSU_API_BASE: "https://animetsu.live/v2/api/anime"
       SWIFTSTREAM_PROXY: "https://swiftstream.top/proxy"
+      # Anikuro provider
+      ANIKURO_BASE: "https://anikuro.ru"
+      ANIKURO_PROXY: "https://proxy.anikuro.ru"
       # Optional: route through a self-hosted cors-anywhere when CF challenges us
       FALLBACK_PROXY: ""
       NODE_ENV: production

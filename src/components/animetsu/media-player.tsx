@@ -22,10 +22,21 @@ export interface SkipMarkers {
   outro?: { start: number; end: number };
 }
 
-interface HlsPlayerProps {
-  masterUrl: string;
-  qualities: Quality[];
-  subtitles: Subtitle[];
+export interface StreamSource {
+  url: string;
+  type: "hls" | "mp4" | "master";
+  quality?: string;
+  isMaster?: boolean;
+  originalUrl?: string;
+}
+
+interface MediaPlayerProps {
+  /** The primary source to play (HLS master or MP4) */
+  source?: StreamSource;
+  /** Alternative quality levels (for HLS) */
+  qualities?: Quality[];
+  /** Subtitle tracks */
+  subtitles?: Subtitle[];
   skips?: SkipMarkers;
   poster?: string;
   title?: string;
@@ -34,45 +45,62 @@ interface HlsPlayerProps {
 }
 
 /**
- * HLS video player built on top of hls.js.
+ * Universal media player — handles both HLS (m3u8) and MP4 sources.
  *
+ * - HLS: uses hls.js with quality switcher (auto + manual levels)
+ * - MP4: native HTML5 video with quality switcher (reloads source)
  * - Falls back to native HLS playback on Safari
- * - Quality switcher (auto + manual levels)
  * - Subtitle track selector (VTT)
  * - Intro/outro skip buttons when skip markers are available
  */
-export function HlsPlayer({
-  masterUrl,
-  qualities,
-  subtitles,
+export function MediaPlayer({
+  source,
+  qualities = [],
+  subtitles = [],
   skips,
   poster,
   title,
   onEnded,
   className,
-}: HlsPlayerProps) {
+}: MediaPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
-  const [currentLevel, setCurrentLevel] = useState<number>(-1); // -1 = auto
+  const [currentLevel, setCurrentLevel] = useState<number>(-1); // -1 = auto (HLS)
   const [currentSub, setCurrentSub] = useState<string>("off");
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSkipIntro, setShowSkipIntro] = useState(false);
   const [showSkipOutro, setShowSkipOutro] = useState(false);
+  // For MP4: index of the chosen quality in `qualities`
+  const [mp4QualityIdx, setMp4QualityIdx] = useState<number>(0);
 
-  // (Re)initialise hls.js whenever the master URL changes
+  const isHls = source?.type === "hls" || source?.type === "master";
+  const isMp4 = source?.type === "mp4";
+  const masterUrl = source?.url || "";
+
+  // (Re)initialise the player whenever the source URL changes
   useEffect(() => {
     const video = videoRef.current;
-    if (!video) return;
+    if (!video || !masterUrl) return;
 
-    // Use a microtask to avoid the synchronous setState-in-effect lint rule
-    // while still resetting the player state before init.
     queueMicrotask(() => {
       setError(null);
       setReady(false);
     });
 
-    // Safari supports HLS natively
+    // MP4 — native playback
+    if (isMp4) {
+      video.src = masterUrl;
+      const onLoaded = () => setReady(true);
+      video.addEventListener("loadedmetadata", onLoaded);
+      return () => {
+        video.removeEventListener("loadedmetadata", onLoaded);
+        video.removeAttribute("src");
+        video.load();
+      };
+    }
+
+    // HLS — Safari native
     if (video.canPlayType("application/vnd.apple.mpegurl") && !Hls.isSupported()) {
       video.src = masterUrl;
       const onLoaded = () => setReady(true);
@@ -83,6 +111,7 @@ export function HlsPlayer({
       };
     }
 
+    // HLS — hls.js
     if (!Hls.isSupported()) {
       queueMicrotask(() => setError("HLS is not supported in this browser."));
       return;
@@ -93,7 +122,6 @@ export function HlsPlayer({
       lowLatencyMode: false,
       backBufferLength: 90,
       xhrSetup: (xhr) => {
-        // Add a crossOrigin-friendly flag — our proxy already sets ACAO: *
         xhr.withCredentials = false;
       },
     });
@@ -104,7 +132,6 @@ export function HlsPlayer({
 
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
       setReady(true);
-      // Apply the user's chosen quality (or auto)
       hls.currentLevel = currentLevel;
     });
 
@@ -130,14 +157,29 @@ export function HlsPlayer({
       hlsRef.current = null;
     };
      
-  }, [masterUrl]);
+  }, [masterUrl, isMp4]);
 
-  // Quality switch
+  // Quality switch for HLS
   useEffect(() => {
-    if (hlsRef.current) {
+    if (hlsRef.current && isHls) {
       hlsRef.current.currentLevel = currentLevel;
     }
-  }, [currentLevel]);
+  }, [currentLevel, isHls]);
+
+  // Quality switch for MP4 — reload source at the new URL
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !isMp4 || qualities.length === 0) return;
+    const q = qualities[mp4QualityIdx];
+    if (!q || video.src === q.url) return;
+    const t = video.currentTime;
+    const wasPaused = video.paused;
+    video.src = q.url;
+    video.addEventListener("loadedmetadata", () => {
+      video.currentTime = t;
+      if (!wasPaused) video.play().catch(() => {});
+    }, { once: true });
+  }, [mp4QualityIdx, isMp4, qualities]);
 
   // Subtitle track switch
   useEffect(() => {
@@ -171,6 +213,14 @@ export function HlsPlayer({
     if (video) video.currentTime = target;
   };
 
+  if (!source) {
+    return (
+      <div className={cn("flex aspect-video w-full items-center justify-center rounded-xl bg-black text-sm text-zinc-500", className)}>
+        No stream available.
+      </div>
+    );
+  }
+
   return (
     <div className={cn("relative w-full overflow-hidden rounded-xl bg-black", className)}>
       <video
@@ -201,7 +251,8 @@ export function HlsPlayer({
           {title}
         </div>
         <div className="pointer-events-auto flex gap-2">
-          {qualities.length > 0 && (
+          {/* HLS quality selector */}
+          {isHls && qualities.length > 0 && (
             <Select
               value={String(currentLevel)}
               onValueChange={(v) => setCurrentLevel(Number(v))}
@@ -219,6 +270,25 @@ export function HlsPlayer({
               </SelectContent>
             </Select>
           )}
+          {/* MP4 quality selector */}
+          {isMp4 && qualities.length > 1 && (
+            <Select
+              value={String(mp4QualityIdx)}
+              onValueChange={(v) => setMp4QualityIdx(Number(v))}
+            >
+              <SelectTrigger className="h-8 w-28 border-white/20 bg-black/60 text-xs text-white">
+                <SelectValue placeholder="Quality" />
+              </SelectTrigger>
+              <SelectContent>
+                {qualities.map((q, i) => (
+                  <SelectItem key={q.url} value={String(i)}>
+                    {q.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {/* Subtitle selector */}
           {subtitles.length > 0 && (
             <Select value={currentSub} onValueChange={setCurrentSub}>
               <SelectTrigger className="h-8 w-28 border-white/20 bg-black/60 text-xs text-white">
