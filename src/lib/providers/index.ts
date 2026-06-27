@@ -12,6 +12,7 @@ import { animeyubiProvider } from "./animeyubi";
 import { miruroProvider } from "./miruro";
 import { animexProvider } from "./animex";
 import { anilightProvider } from "./anilight";
+import { anipmProvider } from "./anipm";
 
 export const providers: Record<ProviderId, Provider> = {
   animetsu: animetsuProvider,
@@ -20,6 +21,7 @@ export const providers: Record<ProviderId, Provider> = {
   miruro: miruroProvider,
   animex: animexProvider,
   anilight: anilightProvider,
+  anipm: anipmProvider,
 };
 
 export const providerList: Provider[] = Object.values(providers);
@@ -32,5 +34,13 @@ export function isProviderId(id: string): id is ProviderId {
   return id in providers;
 }
 
-export { animetsuProvider, anikuroProvider, animeyubiProvider, miruroProvider, animexProvider, anilightProvider };
+export {
+  animetsuProvider,
+  anikuroProvider,
+  animeyubiProvider,
+  miruroProvider,
+  animexProvider,
+  anilightProvider,
+  anipmProvider,
+};
 export * from "./types";

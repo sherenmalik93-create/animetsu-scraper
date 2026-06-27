@@ -77,6 +77,14 @@ const REFERER_BY_HOST: Array<{ match: RegExp; referer: string }> = [
   { match: /nekostream\.site$/i, referer: "https://megaplay.buzz/" },
   { match: /lostproject\.club$/i, referer: "https://megaplay.buzz/" },
   { match: /megaplay\.buzz$/i, referer: "https://anilight.live/" },
+  // Ani.pm — the whole origin sits behind Cloudflare managed challenge.
+  // Every /api/anime/src/{hls,file} request needs Referer: https://ani.pm/
+  // or Cloudflare returns a 403 challenge page. The m3u8 master playlist
+  // contains relative variant URIs (/api/anime/src/hls?t=...) which the
+  // proxy rewrites to absolute ani.pm URLs and re-proxies through this
+  // same route — so every segment request also picks up this referer.
+  { match: /ani\.pm$/i, referer: "https://ani.pm/" },
+  { match: /anipixcdn\.co$/i, referer: "https://ani.pm/" },
 ];
 
 const DEFAULT_REFERERS = ["https://animetsu.live/", "https://www.miruro.to/"];

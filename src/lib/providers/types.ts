@@ -13,7 +13,14 @@
  *   3. Done — the UI and API routes pick it up automatically.
  */
 
-export type ProviderId = "animetsu" | "anikuro" | "animeyubi" | "miruro" | "animex" | "anilight";
+export type ProviderId =
+  | "animetsu"
+  | "anikuro"
+  | "animeyubi"
+  | "miruro"
+  | "animex"
+  | "anilight"
+  | "anipm";
 
 export interface ProviderMeta {
   id: ProviderId;
