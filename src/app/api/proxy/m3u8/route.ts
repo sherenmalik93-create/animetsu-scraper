@@ -69,6 +69,14 @@ const REFERER_BY_HOST: Array<{ match: RegExp; referer: string }> = [
   // https://flixcloud.cc/ as Referer (Cloudflare-enforced).
   { match: /flixcloud\.cc$/i, referer: "https://flixcloud.cc/" },
   { match: /slopnet\.site$/i, referer: "https://flixcloud.cc/" },
+  // Anilight / megaplay family — megaplay.buzz is the embed host,
+  // *.nekostream.site serves the HLS playlist + segments,
+  // *.lostproject.club serves VTT subtitles. All expect
+  // https://megaplay.buzz/ as Referer (Cloudflare-enforced — without it,
+  // these hosts return a 403 "Attention Required!" challenge page).
+  { match: /nekostream\.site$/i, referer: "https://megaplay.buzz/" },
+  { match: /lostproject\.club$/i, referer: "https://megaplay.buzz/" },
+  { match: /megaplay\.buzz$/i, referer: "https://anilight.live/" },
 ];
 
 const DEFAULT_REFERERS = ["https://animetsu.live/", "https://www.miruro.to/"];
