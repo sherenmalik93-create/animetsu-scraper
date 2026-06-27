@@ -60,6 +60,9 @@ export interface AniListMedia {
   id: number;
   idMal?: number;
   title: { romaji?: string; english?: string; native?: string };
+  /** Alternative titles — used by the universal AniList ID resolver to
+   *  match anime across providers that don't natively index by AniList id. */
+  synonyms?: string[];
   description?: string;
   averageScore?: number;
   meanScore?: number;
@@ -124,6 +127,7 @@ const MEDIA_FIELDS = `
   id
   idMal
   title { romaji english native }
+  synonyms
   description
   averageScore
   meanScore

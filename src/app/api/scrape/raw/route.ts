@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getProvider } from "@/lib/providers";
+import { resolveIdForProvider } from "@/lib/providers/resolve";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -17,6 +18,11 @@ export const runtime = "nodejs";
  *   - animetsu:  the upstream `SourcesResponse` object (sources[], subs[], skips)
  *   - anikuro:   `{ rawMulti: { <providerName>: <data>, ... }, chosen: <data> }`
  *   - animeyubi: `{ provider, api, episode, normalized: [...] }`
+ *
+ * The `id` parameter accepts ANY of these formats:
+ *   - Provider-native id
+ *   - `al:{anilistId}` — universal, works on EVERY provider
+ *   - `al:{anilistId}:{slug}` — anilight / anipm composite format
  */
 export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
@@ -31,8 +37,9 @@ export async function GET(req: NextRequest) {
 
   try {
     const provider = getProvider(providerId);
+    const resolvedId = await resolveIdForProvider(providerId, id);
     const sources = await provider.getSources({
-      id,
+      id: resolvedId,
       epNum: ep,
       server,
       sourceType: type,
@@ -41,7 +48,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       {
         provider: provider.meta.id,
-        animeId: id,
+        animeId: resolvedId,
+        requestedId: id,
         episode: ep,
         server: sources.server,
         streamType: type,
