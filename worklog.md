@@ -160,3 +160,19 @@ Stage Summary:
     * src/lib/providers/anipm.ts (parseAnipmId slug-from-cache fix, ~15 lines changed)
     * src/app/docs/anipm/page.tsx (new EndpointCard + comparison section + hero callout, ~290 lines added)
     * src/app/docs/id-finder/page.tsx (new Provider ID Formats section, ~115 lines added)
+
+---
+Task ID: anipm-raw-push
+Agent: main
+Task: User provided PAT after token was lost in previous session — push a7b4961 to origin/main.
+
+Work Log:
+- Pushed commit a7b4961 (feat(anipm): deep raw scrape endpoint + universal ID Finder docs) to origin/main using PAT via one-shot URL
+- Stripped PAT from remote.origin.url immediately after push (verified: remote -v shows clean URL)
+- Verified via git ls-remote: GitHub main = a7b49618edff2e6aa21fd24135c23b233cf1e0fd (matches local HEAD)
+
+Stage Summary:
+- HEAD on origin/main = a7b4961 (was 3cc3c64)
+- All work from previous session is now live on GitHub
+- Vercel auto-deploy should trigger on this push
+- Token was used inline only, never persisted anywhere
