@@ -169,7 +169,7 @@ export default function DocsPage() {
             </p>
             <p className="mb-4 text-zinc-400">
               Each provider wraps a different upstream site (animetsu.live,
-              anikuro.ru, animeyubi.com, miruro.to), normalizes its response into the
+              anikuro.ru, animeyubi.com, miruro.to, animex.one), normalizes its response into the
               unified TypeScript types documented below, and exposes the raw
               upstream JSON alongside the normalized data so you can inspect
               exactly what the provider returned. All HLS / MP4 / subtitle URLs
@@ -177,7 +177,7 @@ export default function DocsPage() {
               them directly.
             </p>
             <div className="grid gap-4 sm:grid-cols-3">
-              <StatCard label="Providers" value="4" sub="animetsu · anikuro · animeyubi · miruro" />
+              <StatCard label="Providers" value="5" sub="animetsu · anikuro · animeyubi · miruro · animex" />
               <StatCard label="Endpoints" value="10" sub="REST · JSON · cached" />
               <StatCard label="Latency" value="<2s" sub="p50 for full search→play flow" />
             </div>
@@ -543,6 +543,23 @@ console.log(res.results[0].title.preferred);`,
                   in search results. IDs are prefixed with{" "}
                   <code className="font-mono text-zinc-400">al:</code> (e.g.{" "}
                   <code className="font-mono text-zinc-400">al:154587</code>).
+                </li>
+                <li>
+                  <code className="text-emerald-400">animex</code> — AniList-native
+                  catalog backed by{" "}
+                  <a
+                    href="https://animex.one"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-emerald-400 hover:underline"
+                  >
+                    animex.one
+                  </a>{" "}
+                  with flixcloud.cc embeds. Returns dual-audio (sub+dub) for most
+                  recent releases. IDs are prefixed with{" "}
+                  <code className="font-mono text-zinc-400">al:</code>. Playback is
+                  via iframe — flixcloud uses encrypted stream URLs decrypted
+                  client-side by their own ArtPlayer.
                 </li>
               </ul>
             </div>
@@ -1251,7 +1268,7 @@ curl "https://your-deployment.example.com/api/proxy/m3u8?url=https%3A%2F%2Fcdn.m
             <CodeBlock
               language="typescript"
               filename="types.ts"
-              code={`export type ProviderId = "animetsu" | "anikuro" | "animeyubi" | "miruro";
+              code={`export type ProviderId = "animetsu" | "anikuro" | "animeyubi" | "miruro" | "animex";
 
 export interface UnifiedSearchResult {
   id: string;
@@ -1386,6 +1403,21 @@ export interface UnifiedSources {
           <section id="changelog" className="scroll-mt-20 py-10">
             <h2 className="mb-3 text-2xl font-bold text-white">Changelog</h2>
             <div className="space-y-4">
+              <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-400">
+                    v1.4.0
+                  </span>
+                  <span className="text-sm text-zinc-500">2026-06-27</span>
+                </div>
+                <ul className="space-y-1 text-sm text-zinc-400">
+                  <li>• Added <code className="font-mono text-emerald-400">animex</code> provider (animex.one — AniList-native catalog with flixcloud.cc embeds, supports dual-audio for most recent releases).</li>
+                  <li>• Reverse-engineered animex's SvelteKit <code className="font-mono text-emerald-400">__data.json</code> chunk protocol (devalue format with integer indices into a flat array — implements proper recursive dereferencing).</li>
+                  <li>• Episode discovery probes episodes 1..N in parallel (batch of 12, capped at 24) and skips episodes that don't exist yet.</li>
+                  <li>• Returns iframe embed URLs for playback (flixcloud uses encrypted stream URLs decrypted client-side via Crypto-JS — server-side extraction would be fragile due to Cloudflare TLS-fingerprint blocking).</li>
+                  <li>• Updated streaming m3u8 proxy: pipes segments through ReadableStream (no buffering), forwards Range headers, handles CORS preflight, auto-picks Referer per upstream host.</li>
+                </ul>
+              </div>
               <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
                 <div className="mb-2 flex items-center gap-2">
                   <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-400">
