@@ -377,6 +377,15 @@ export default function Home() {
           </div>
 
           <Link
+            href="/animetsu-id"
+            className="hidden shrink-0 items-center gap-1.5 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-300 transition-colors hover:bg-rose-500/20 hover:text-rose-200 sm:flex"
+            title="Find the animetsu native id for any AniList ID"
+          >
+            <Search className="h-3.5 w-3.5" />
+            Animetsu ID Finding
+          </Link>
+
+          <Link
             href="/docs"
             className="hidden shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:bg-white/10 hover:text-white sm:flex"
             title="API documentation"

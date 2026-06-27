@@ -9,7 +9,7 @@ import { ApiTester } from "@/components/docs/api-tester";
 export const metadata = {
   title: "API Docs — Animetsu Scraper",
   description:
-    "Complete REST API reference for the multi-provider anime scraping backend. 10 endpoints across 7 providers (animetsu, anikuro, animeyubi, miruro, animex, anilight, anipm) with AniList enrichment, CORS proxy, and raw response inspection.",
+    "Complete REST API reference for the multi-provider anime scraping backend. 11 endpoints across 7 providers (animetsu, anikuro, animeyubi, miruro, animex, anilight, anipm) with AniList enrichment, universal AniList ID routing, CORS proxy, and raw response inspection.",
 };
 
 const SIDEBAR_SECTIONS = [
@@ -39,6 +39,7 @@ const SIDEBAR_SECTIONS = [
       { id: "sources", label: "Stream Sources" },
       { id: "raw", label: "Raw Response" },
       { id: "resolve", label: "Resolve AniList ID" },
+      { id: "animetsu-id", label: "Animetsu ID Finding" },
       { id: "recent", label: "Recent Releases" },
     ],
   },
@@ -100,7 +101,7 @@ export default function DocsPage() {
           <div className="max-w-3xl">
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs text-zinc-400">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              v1.3.0 · Stable · 10 endpoints · 4 providers
+              v1.3.0 · Stable · 11 endpoints · 7 providers
             </div>
             <h1 className="mb-4 text-4xl font-bold tracking-tight text-white sm:text-5xl">
               Anime Scraper API
@@ -181,7 +182,7 @@ export default function DocsPage() {
             </p>
             <div className="grid gap-4 sm:grid-cols-3">
               <StatCard label="Providers" value="7" sub="animetsu · anikuro · animeyubi · miruro · animex · anilight · anipm" />
-              <StatCard label="Endpoints" value="10" sub="REST · JSON · cached" />
+              <StatCard label="Endpoints" value="11" sub="REST · JSON · cached" />
               <StatCard label="Latency" value="<2s" sub="p50 for full search→play flow" />
             </div>
           </section>
@@ -1355,6 +1356,100 @@ if (Hls.isSupported()) {
               <code className="font-mono text-zinc-400">ResolveResult</code> or{" "}
               <code className="font-mono text-zinc-400">null</code> if the provider doesn't have
               that anime.
+            </p>
+          </EndpointCard>
+
+          {/* ---------------------------------------------------------------- */}
+          {/* ANIMETSU-ID                                                       */}
+          {/* ---------------------------------------------------------------- */}
+          <EndpointCard
+            id="animetsu-id"
+            method="GET"
+            path="/api/scrape/animetsu-id?anilist={anilistId}"
+            title="Animetsu ID Finding"
+            description="Purpose-built resolver for the animetsu provider. Pass an AniList ID, get back the animetsu native Mongo ObjectId (e.g. 6989b8a029cf95f4eb03b500) — the long internal id that animetsu uses for /sources, /episodes, /info. Also returns a ready-to-use /sources URL and the full resolution trace (which AniList title matched). A visual UI for this endpoint lives at /animetsu-id."
+          >
+            <ParamTable
+              params={[
+                {
+                  name: "anilist",
+                  type: "number",
+                  required: true,
+                  description: "AniList ID (e.g. 154587 for Frieren).",
+                },
+              ]}
+            />
+            <CodeTabs
+              tabs={[
+                {
+                  label: "curl",
+                  code: `curl "https://your-deployment.example.com/api/scrape/animetsu-id?anilist=154587"`,
+                },
+                {
+                  label: "JavaScript",
+                  code: `const res = await fetch("/api/scrape/animetsu-id?anilist=154587")
+  .then((r) => r.json());
+console.log(res.animetsuId);
+// → "6989b8a029cf95f4eb03b500"
+console.log(res.sourcesUrl);
+// → "/api/scrape/sources?id=6989b8a029cf95f4eb03b500&provider=animetsu&ep=1"`,
+                },
+              ]}
+            />
+            <h4 className="mb-2 mt-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">
+              Response
+            </h4>
+            <CodeBlock
+              language="json"
+              label="200 OK"
+              code={`{
+  "anilistId": 154587,
+  "animetsuId": "6989b8a029cf95f4eb03b500",
+  "matchedTitle": "Frieren: Beyond Journey's End",
+  "strategy": "title-search",
+  "triedTitles": [
+    "Frieren: Beyond Journey's End",
+    "Sousou no Frieren",
+    "葬送のフリーレン"
+  ],
+  "anilist": {
+    "id": 154587,
+    "idMal": 52991,
+    "title": {
+      "romaji": "Sousou no Frieren",
+      "english": "Frieren: Beyond Journey's End",
+      "native": "葬送のフリーレン"
+    },
+    "coverImage": { "large": "https://s4.anilist.co/..." },
+    "seasonYear": 2023,
+    "format": "TV"
+  },
+  "universalId": "al:154587",
+  "sourcesUrl": "/api/scrape/sources?id=6989b8a029cf95f4eb03b500&provider=animetsu&ep=1",
+  "universalSourcesUrl": "/api/scrape/sources?id=al%3A154587&provider=animetsu&ep=1"
+}`}
+            />
+            <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm text-amber-200">
+              <strong className="font-semibold">When to use this vs. just passing al:{"{anilistId}"}</strong>
+              <p className="mt-1">
+                In most cases you don&apos;t need this endpoint — every other
+                endpoint already accepts{" "}
+                <code className="font-mono">al:{"{anilistId}"}</code> and resolves
+                internally. Use this endpoint when you want to:
+              </p>
+              <ul className="mt-2 space-y-1 list-disc pl-5">
+                <li>Cache the animetsu native id client-side to skip resolution on subsequent calls</li>
+                <li>Debug why a particular anime isn&apos;t resolving (inspect <code className="font-mono">triedTitles</code>)</li>
+                <li>Pass the native id to a non-API consumer (e.g. an external script)</li>
+                <li>Show users the underlying animetsu id for transparency</li>
+              </ul>
+            </div>
+            <p className="mt-3 text-sm text-zinc-500">
+              Returns <code className="font-mono text-zinc-400">404</code> if the
+              anime isn&apos;t found on animetsu&apos;s catalog after trying all
+              candidate titles. The response body includes the AniList metadata
+              and the list of titles that were tried, so you can see why it
+              failed. Cached for 5 min.
             </p>
           </EndpointCard>
 
