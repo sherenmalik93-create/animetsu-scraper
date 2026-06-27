@@ -31,12 +31,30 @@
  *   - "native" → sub only (variants: ["sub"])
  *   - "sub"    → sub only (variants: ["sub"])
  *
- * Stream playback:
- *   - We return the flixcloud embed URL as an iframe source.
- *   - The flixcloud page uses ArtPlayer + Crypto-JS to decrypt the actual m3u8
- *     at runtime. Extracting the m3u8 server-side would be fragile.
- *   - BONUS: the flixcloud embed HTML contains subtitles + chapter markers
- *     (intro/outro) that we extract and return alongside the iframe.
+ * Stream playback strategy:
+ *   1. BEST-EFFORT server-side extraction (extractFlixcloudM3u8 in
+ *      ./flixcloud-extract.ts):
+ *        - Fetch the flixcloud embed HTML via curl (Node undici gets 403'd
+ *          by Cloudflare's TLS fingerprinting).
+ *        - Parse the SvelteKit data block to get obfuscation_seed,
+ *          obfuscated_crypto_data, w_payload (WASM), subtitles, intro/outro.
+ *        - Derive the field-name map from the seed via 6 rounds of SHA-256.
+ *        - Call GET /api/m3u8/{token} for the encrypted m3u8 + AES key.
+ *        - Run the page's WASM to derive a PBKDF2 password input.
+ *        - PBKDF2 → XOR with seed → SHA-256 → final AES-256 key.
+ *        - AES-CBC decrypt → plaintext m3u8 URL.
+ *      When extraction succeeds, the m3u8 is wrapped with
+ *      /api/proxy/m3u8?url=<m3u8>&referer=https://flixcloud.cc/ so it plays
+ *      in our own HLS player (no iframe, full quality picker, etc.).
+ *   2. FALLBACK: Cloudflare's bot management rejects the /api/m3u8/{token}
+ *      call with 410 "invalid_or_used_token" whenever the requesting client
+ *      hasn't solved a Cloudflare Turnstile challenge (which requires JS
+ *      execution in a real browser). When that happens, we return the raw
+ *      flixcloud embed URL as an iframe source — the user's browser solves
+ *      Turnstile natively and playback works fine.
+ *   3. ALWAYS: subtitles + intro/outro skip markers are inlined in the page
+ *      HTML, so we extract them regardless of whether m3u8 extraction
+ *      succeeds. They're returned alongside whichever stream source we use.
  */
 
 import type {
@@ -50,6 +68,11 @@ import type {
   UnifiedSkipMarkers,
 } from "./types";
 import { searchAniList, getAniListMedia, type AniListMedia } from "@/lib/anilist/client";
+import {
+  extractFlixcloudM3u8,
+  buildProxiedM3u8,
+  type FlixcloudEmbedData,
+} from "./flixcloud-extract";
 
 const ANIMEX_BASE = "https://animex.one";
 const FLIXCLOUD_BASE = "https://flixcloud.cc";
@@ -254,108 +277,6 @@ async function fetchAllEpisodes(
 }
 
 /* ------------------------------------------------------------------ */
-/*  Flixcloud embed parsing                                             */
-/* ------------------------------------------------------------------ */
-
-interface FlixcloudEmbedData {
-  subtitles: { url: string; language: string; format: string; default?: boolean }[];
-  intro?: { start: number; end: number };
-  outro?: { start: number; end: number };
-  videoId?: string;
-  thumbnailsVtt?: string;
-}
-
-/**
- * Fetch the flixcloud.cc embed page and extract subtitles + skip markers.
- *
- * NOTE: Flixcloud sits behind Cloudflare bot protection that does TLS
- * fingerprinting. Node's fetch (undici) gets 403'd, even with full browser
- * headers. The iframe still works fine in the browser (the browser makes
- * the request directly), so playback is unaffected — we just can't extract
- * subtitles/chapters server-side. When we hit the 403, we return null
- * gracefully and the player loads the iframe without our enriched metadata.
- *
- * To re-enable extraction in the future, options would be:
- *   - Use a Cloudflare-bypassing HTTP client (e.g. cyclotls / got-scraping)
- *   - Run a headless browser to fetch the page
- *   - Reverse-engineer the flixcloud player's API (the page decrypts the
- *     stream URL via Crypto-JS at runtime — the decryption key changes
- *     frequently and would be fragile to maintain)
- */
-async function fetchFlixcloudData(
-  accessId: string,
-  signal?: AbortSignal
-): Promise<FlixcloudEmbedData | null> {
-  const url = `${FLIXCLOUD_BASE}/e/${accessId}?v=1`;
-  try {
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": BROWSER_UA,
-        Referer: `${ANIMEX_BASE}/`,
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Sec-Ch-Ua":
-          '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-        "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"Windows"',
-        "Sec-Fetch-Dest": "iframe",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "cross-site",
-        "Upgrade-Insecure-Requests": "1",
-      },
-      cache: "no-store",
-      signal,
-    });
-    if (!res.ok) return null;
-    const html = await res.text();
-
-    // Extract subtitle entries: {url:"...",language:"...",format:"...",default:true|false}
-    const subtitleRegex =
-      /\{url:"([^"]+)",language:"([^"]+)",format:"([^"]+)"(?:,default:(true|false))?\}/g;
-    const subtitles: FlixcloudEmbedData["subtitles"] = [];
-    let m: RegExpExecArray | null;
-    while ((m = subtitleRegex.exec(html)) !== null) {
-      subtitles.push({
-        url: m[1],
-        language: m[2],
-        format: m[3],
-        default: m[4] === "true",
-      });
-    }
-
-    // Extract intro/outro chapters
-    let intro: FlixcloudEmbedData["intro"] | undefined;
-    let outro: FlixcloudEmbedData["outro"] | undefined;
-    const introMatch = html.match(
-      /intro_chapter:\{start:(\d+),end:(\d+),title:"([^"]+)"\}/
-    );
-    if (introMatch) {
-      intro = { start: Number(introMatch[1]), end: Number(introMatch[2]) };
-    }
-    const outroMatch = html.match(
-      /outro_chapter:\{start:(\d+),end:(\d+),title:"([^"]+)"\}/
-    );
-    if (outroMatch) {
-      outro = { start: Number(outroMatch[1]), end: Number(outroMatch[2]) };
-    }
-
-    const videoIdMatch = html.match(/video_id:"([0-9a-f-]+)"/);
-    const thumbnailsMatch = html.match(/thumbnails_vtt:"([^"]+)"/);
-
-    return {
-      subtitles,
-      intro,
-      outro,
-      videoId: videoIdMatch?.[1],
-      thumbnailsVtt: thumbnailsMatch?.[1],
-    };
-  } catch {
-    return null;
-  }
-}
-
-/* ------------------------------------------------------------------ */
 /*  AniList helpers                                                     */
 /* ------------------------------------------------------------------ */
 
@@ -500,26 +421,45 @@ export const animexProvider: Provider = {
       };
     }
 
-    const embedUrl = `${FLIXCLOUD_BASE}/e/${accessId}?v=1`;
+    // Best-effort m3u8 extraction. This runs the full flixcloud decryption
+    // pipeline (WASM + PBKDF2 + AES-CBC) server-side. When Cloudflare's bot
+    // management blocks the token API (the common case from datacenter IPs),
+    // extraction fails gracefully and we fall back to the iframe URL — which
+    // works in the user's real browser because the browser solves Cloudflare's
+    // Turnstile challenge natively.
+    const flixData: FlixcloudEmbedData = await extractFlixcloudM3u8(accessId);
 
-    // Fetch the flixcloud embed to extract subtitles + skip markers.
-    const flixData = await fetchFlixcloudData(accessId);
+    // Build the sources list. If extraction succeeded, the proxied m3u8 is
+    // the primary source (best UX — our own HLS player, quality picker, no
+    // iframe). The iframe is ALWAYS included as a fallback so playback works
+    // even when extraction fails.
+    const sources: UnifiedStreamSource[] = [];
 
-    // Build the iframe source.
-    const sources: UnifiedStreamSource[] = [
-      {
-        url: embedUrl,
-        type: "iframe",
+    if (flixData.m3u8) {
+      const proxied = buildProxiedM3u8(flixData.m3u8);
+      sources.push({
+        url: proxied,
+        type: "master",
         quality: "auto",
-        originalUrl: embedUrl,
-        upstreamReferer: `${ANIMEX_BASE}/`,
-      },
-    ];
+        isMaster: true,
+        originalUrl: flixData.m3u8,
+        upstreamReferer: `${FLIXCLOUD_BASE}/`,
+      });
+    }
+
+    // Iframe fallback — always present so the player UI can offer it as an
+    // alternative when the proxied m3u8 fails (or when extraction failed).
+    sources.push({
+      url: flixData.embedUrl,
+      type: "iframe",
+      quality: "auto",
+      originalUrl: flixData.embedUrl,
+      upstreamReferer: `${ANIMEX_BASE}/`,
+    });
 
     // Convert flixcloud subtitles to our unified format.
-    // Prefer .srt over .ass (browser HLS players handle SRT natively, ASS
-    // requires a libass renderer). Keep both so the UI can pick.
-    const subtitles: UnifiedSubtitle[] = (flixData?.subtitles || [])
+    // Both .srt and .ass are kept — the player UI can pick.
+    const subtitles: UnifiedSubtitle[] = (flixData.subtitles || [])
       .filter((s) => s.format === "srt" || s.format === "ass")
       .map((s) => ({
         url: s.url,
@@ -528,10 +468,10 @@ export const animexProvider: Provider = {
 
     // Skip markers from flixcloud chapters
     const skips: UnifiedSkipMarkers | undefined =
-      flixData?.intro || flixData?.outro
+      flixData.intro || flixData.outro
         ? {
-            intro: flixData?.intro,
-            outro: flixData?.outro,
+            intro: flixData.intro,
+            outro: flixData.outro,
           }
         : undefined;
 
@@ -544,20 +484,27 @@ export const animexProvider: Provider = {
       server: "flixcloud",
       audio,
       accessId,
-      embedUrl,
-      videoId: flixData?.videoId,
-      thumbnailsVtt: flixData?.thumbnailsVtt,
+      embedUrl: flixData.embedUrl,
+      extraction: {
+        pageFetched: flixData.debug.pageFetched,
+        tokenFound: flixData.debug.tokenFound,
+        apiStatus: flixData.debug.apiStatus,
+        apiError: flixData.debug.apiError ?? null,
+        decrypted: flixData.debug.decrypted,
+        m3u8: flixData.m3u8,
+        proxiedUrl: flixData.m3u8 ? buildProxiedM3u8(flixData.m3u8) : null,
+      },
       upstream: {
         access_id: accessId,
         audio,
         anilist_id: anilistId,
         episode: epNum,
-        player_url: embedUrl,
+        player_url: flixData.embedUrl,
       },
-      subtitles: flixData?.subtitles,
+      subtitles: flixData.subtitles,
       chapters: {
-        intro: flixData?.intro,
-        outro: flixData?.outro,
+        intro: flixData.intro,
+        outro: flixData.outro,
       },
       normalized: {
         anilist_id: anilistId,
@@ -566,12 +513,12 @@ export const animexProvider: Provider = {
         provider: "flixcloud",
         server_id: "flixcloud",
         cdn_host: FLIXCLOUD_BASE.replace(/^https?:\/\//, ""),
-        hls_url: null,
+        hls_url: flixData.m3u8,
         mp4_url: null,
-        embed_url: embedUrl,
-        stream_format: "iframe",
+        embed_url: flixData.embedUrl,
+        stream_format: flixData.m3u8 ? "hls" : "iframe",
         quality: "auto",
-        referer: `${ANIMEX_BASE}/`,
+        referer: `${FLIXCLOUD_BASE}/`,
         is_default: true,
       },
     };

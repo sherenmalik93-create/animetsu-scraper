@@ -24,6 +24,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { spawn } from "node:child_process";
+import { Readable } from "node:stream";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -36,6 +38,16 @@ export const maxDuration = 60;
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
+/**
+ * Hosts that Cloudflare protects with TLS fingerprinting — Node's undici
+ * (used by global fetch()) gets 403'd by these even with full browser headers.
+ * For these hosts we shell out to curl, which Cloudflare accepts.
+ */
+const CURL_REQUIRED_HOSTS = [
+  /flixcloud\.cc$/i,
+  /slopnet\.site$/i,
+];
 
 /**
  * Per-host Referer table. When the upstream URL's host matches one of these,
@@ -51,6 +63,12 @@ const REFERER_BY_HOST: Array<{ match: RegExp; referer: string }> = [
   { match: /megacloud\.club$/i, referer: "https://animetsu.live/" },
   { match: /rapid\-?cdn/i, referer: "https://animetsu.live/" },
   { match: /kwik\.(sx|si|fi)$/i, referer: "https://animeyubi.com/" },
+  // Animex / flixcloud family — flixcloud.cc is the embed host,
+  // fetch.flixcloud.cc serves the HLS playlist + thumbnails,
+  // vault92.slopnet.site serves subtitles + fonts. All expect
+  // https://flixcloud.cc/ as Referer (Cloudflare-enforced).
+  { match: /flixcloud\.cc$/i, referer: "https://flixcloud.cc/" },
+  { match: /slopnet\.site$/i, referer: "https://flixcloud.cc/" },
 ];
 
 const DEFAULT_REFERERS = ["https://animetsu.live/", "https://www.miruro.to/"];
@@ -163,6 +181,112 @@ function pipeThrough(upstreamBody: ReadableStream<Uint8Array>): ReadableStream<U
   return upstreamBody;
 }
 
+/** Detect whether the target host requires curl (Cloudflare-protected). */
+function needsCurl(targetUrl: string): boolean {
+  let host = "";
+  try {
+    host = new URL(targetUrl).hostname;
+  } catch {
+    return false;
+  }
+  return CURL_REQUIRED_HOSTS.some((re) => re.test(host));
+}
+
+/** Header set we send to curl when proxying a flixcloud/slopnet request. */
+function buildCurlHeaders(referer: string, range?: string | null): string[] {
+  const h: string[] = [
+    "-A", BROWSER_UA,
+    "-H", `Referer: ${referer}`,
+    "-H", "Accept: */*",
+    "-H", "Accept-Language: en-US,en;q=0.9",
+    "-H", 'Sec-Ch-Ua: "Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    "-H", "Sec-Ch-Ua-Mobile: ?0",
+    "-H", 'Sec-Ch-Ua-Platform: "Windows"',
+    "-H", "Sec-Fetch-Dest: empty",
+    "-H", "Sec-Fetch-Mode: cors",
+    "-H", "Sec-Fetch-Site: cross-site",
+  ];
+  if (range) h.push("-H", `Range: ${range}`);
+  return h;
+}
+
+/**
+ * Curl-backed streaming fetch — used when Cloudflare's TLS fingerprinting
+ * blocks Node's undici. Returns a Response-like object with the upstream's
+ * status, headers, and body (ReadableStream).
+ *
+ * We use child_process.spawn (not execFile) so curl's stdout streams straight
+ * into our ReadableStream — no buffering. This keeps memory flat regardless
+ * of segment size and avoids Vercel's 4.5MB body limit.
+ */
+async function curlFetch(
+  target: string,
+  referer: string,
+  range?: string | null
+): Promise<{
+  status: number;
+  headers: Map<string, string>;
+  body: ReadableStream<Uint8Array>;
+}> {
+  const args = [
+    "-sS",
+    ...buildCurlHeaders(referer, range),
+    "-D", "-",           // dump headers to stdout BEFORE the body
+    "--max-time", "55",  // stay under Next's maxDuration
+    target,
+  ];
+  const child = spawn("curl", args);
+
+  // curl with -D - writes headers + blank line + body, all to stdout.
+  // We parse the header block on the fly, then stream the body bytes.
+  let headersDone = false;
+  let status = 200;
+  const headers = new Map<string, string>();
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      let buf = Buffer.alloc(0);
+      child.stdout.on("data", (chunk: Buffer) => {
+        if (headersDone) {
+          controller.enqueue(new Uint8Array(chunk));
+          return;
+        }
+        buf = Buffer.concat([buf, chunk]);
+        const headerEnd = buf.indexOf("\r\n\r\n");
+        if (headerEnd < 0) return;
+        // Parse the header block (everything before \r\n\r\n)
+        const headerBlock = buf.slice(0, headerEnd).toString("utf-8");
+        const lines = headerBlock.split("\r\n");
+        for (const line of lines) {
+          if (line.startsWith("HTTP/")) {
+            const parts = line.split(" ");
+            status = parseInt(parts[1] || "200", 10) || 200;
+          } else if (line.includes(":")) {
+            const idx = line.indexOf(":");
+            const k = line.slice(0, idx).trim().toLowerCase();
+            const v = line.slice(idx + 1).trim();
+            if (k) headers.set(k, v);
+          }
+        }
+        headersDone = true;
+        // Enqueue the body bytes that came after the header separator
+        const bodyStart = headerEnd + 4;
+        if (buf.length > bodyStart) {
+          controller.enqueue(new Uint8Array(buf.slice(bodyStart)));
+        }
+      });
+      child.stdout.on("end", () => controller.close());
+      child.stdout.on("error", (e) => controller.error(e));
+      child.on("error", (e) => controller.error(e));
+    },
+    cancel() {
+      child.kill("SIGTERM");
+    },
+  });
+
+  return { status, headers, body: stream };
+}
+
 // ---------------------------------------------------------------------------
 // OPTIONS — CORS preflight
 // ---------------------------------------------------------------------------
@@ -215,15 +339,26 @@ export async function GET(req: NextRequest) {
   }
 
   const referer = pickReferer(target, refererOverride);
-  const upstreamHeaders = buildUpstreamHeaders(target, referer, req);
+  const range = req.headers.get("range");
 
+  // For Cloudflare-protected hosts (flixcloud, slopnet), Node's undici gets
+  // 403'd by TLS fingerprinting. Shell out to curl instead — it streams
+  // through stdout so we keep memory flat for large segments.
   let upstream: Response;
   try {
-    upstream = await fetch(target, {
-      headers: upstreamHeaders,
-      cache: "no-store",
-      redirect: "follow",
-    });
+    if (needsCurl(target)) {
+      const r = await curlFetch(target, referer, range);
+      upstream = new Response(r.body, {
+        status: r.status,
+        headers: Object.fromEntries(r.headers),
+      });
+    } else {
+      upstream = await fetch(target, {
+        headers: buildUpstreamHeaders(target, referer, req),
+        cache: "no-store",
+        redirect: "follow",
+      });
+    }
   } catch (err) {
     return NextResponse.json(
       {
