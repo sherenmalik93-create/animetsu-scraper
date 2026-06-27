@@ -176,3 +176,29 @@ Stage Summary:
 - All work from previous session is now live on GitHub
 - Vercel auto-deploy should trigger on this push
 - Token was used inline only, never persisted anywhere
+
+---
+Task ID: mkissa-animeverse-providers
+Agent: main
+Task: Add mkissa.to and animeverse.to as new providers
+
+Work Log:
+- Investigated mkissa.to: SvelteKit frontend for allanime GraphQL API
+- Reverse-engineered allanime's persisted query hashes from JS bundle
+- Discovered episode data encryption: AES-256-GCM with SHA-256("Xot36i3lK3:v1") key
+- Successfully decrypted episode sources (7 servers: Filemoon, Vidnest, MP4Upload, OK.ru, Uns, Luf-Mp4, Ak)
+- Investigated animeverse.to: Custom API with HMAC-SHA256 request signing
+- Reverse-engineered session + fingerprint auth flow from JS bundle
+- Built mkissa provider with full AES-GCM decryption pipeline
+- Built animeverse provider with session management and HMAC signing
+- Registered both providers (ProviderId union + index.ts)
+- TypeScript clean, next build succeeds
+- Tested end-to-end: search, episodes, sources all working for mkissa
+- AnimeVerse site is "temporarily down" — provider built against documented API
+- Pushed to GitHub: 638e7f0
+
+Stage Summary:
+- 9 providers now registered: animetsu, anikuro, animeyubi, miruro, animex, anilight, anipm, mkissa, animeverse
+- MKissa fully functional with decrypted episode sources
+- AnimeVerse built but site currently down (CF protection)
+- Files: src/lib/providers/mkissa.ts (NEW), src/lib/providers/animeverse.ts (NEW), types.ts (updated), index.ts (updated)
