@@ -85,6 +85,11 @@ const REFERER_BY_HOST: Array<{ match: RegExp; referer: string }> = [
   // same route — so every segment request also picks up this referer.
   { match: /ani\.pm$/i, referer: "https://ani.pm/" },
   { match: /anipixcdn\.co$/i, referer: "https://ani.pm/" },
+  // Anime-Dunya — Cloudflare-fronted anime streaming site
+  { match: /anime-dunya\.com$/i, referer: "https://anime-dunya.com/" },
+  // AnimeKhor — Cloudflare-fronted Donghua streaming site (Themesia AnimeStream)
+  { match: /animekhor\.org$/i, referer: "https://animekhor.org/" },
+  { match: /animekhor\.xyz$/i, referer: "https://animekhor.org/" },
 ];
 
 const DEFAULT_REFERERS = ["https://animetsu.live/", "https://www.miruro.to/"];

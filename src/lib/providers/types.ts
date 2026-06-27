@@ -22,7 +22,9 @@ export type ProviderId =
   | "anilight"
   | "anipm"
   | "mkissa"
-  | "animeverse";
+  | "animeverse"
+  | "animedunya"
+  | "animekhor";
 
 export interface ProviderMeta {
   id: ProviderId;

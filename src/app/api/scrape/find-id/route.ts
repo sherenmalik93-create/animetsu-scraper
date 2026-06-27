@@ -166,6 +166,9 @@ export async function GET(req: NextRequest) {
       "animex",
       "anilight",
       "anipm",
+      "mkissa",
+      "animedunya",
+      "animekhor",
     ];
 
     const providersResult: Record<string, unknown> = {};

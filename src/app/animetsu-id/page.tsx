@@ -106,6 +106,9 @@ const PROVIDERS = [
   { id: "animex",   label: "Animex",          accent: "from-pink-500 to-rose-500",       hint: "AniList-native (al:{id})" },
   { id: "anilight", label: "Anilight",        accent: "from-amber-500 to-orange-500",    hint: "al:{id}:{slug}" },
   { id: "anipm",    label: "Ani.pm",          accent: "from-indigo-500 to-violet-500",   hint: "anipm:{seriesId}:{slug}" },
+  { id: "mkissa",   label: "MKissa",          accent: "from-blue-500 to-cyan-500",       hint: "AllAnime Mongo ID" },
+  { id: "animedunya", label: "AnimeDunya",    accent: "from-emerald-500 to-teal-600",    hint: "Slug-based" },
+  { id: "animekhor", label: "AnimeKhor",      accent: "from-amber-500 to-orange-600",    hint: "Slug-based (Donghua)" },
 ] as const;
 
 type ProviderId = (typeof PROVIDERS)[number]["id"];

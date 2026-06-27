@@ -265,6 +265,9 @@ export async function resolveAcrossAllProviders(
     "animex",
     "anilight",
     "anipm",
+    "mkissa",
+    "animedunya",
+    "animekhor",
   ];
   const entries = await Promise.all(
     providerIds.map(async (pid) => {
