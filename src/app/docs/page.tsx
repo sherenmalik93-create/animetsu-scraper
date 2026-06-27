@@ -21,6 +21,7 @@ const SIDEBAR_SECTIONS = [
       { id: "base-url", label: "Base URL" },
       { id: "authentication", label: "Authentication" },
       { id: "quick-start", label: "Quick Start" },
+      { id: "universal-routing", label: "Universal Routing" },
       { id: "rate-limits", label: "Rate Limits" },
     ],
   },
@@ -37,6 +38,7 @@ const SIDEBAR_SECTIONS = [
       { id: "servers", label: "Servers" },
       { id: "sources", label: "Stream Sources" },
       { id: "raw", label: "Raw Response" },
+      { id: "resolve", label: "Resolve AniList ID" },
       { id: "recent", label: "Recent Releases" },
     ],
   },
@@ -252,7 +254,12 @@ export default function DocsPage() {
                   code: `const BASE = "https://your-deployment.example.com/api/scrape";
 const provider = "animetsu"; // or "anikuro" | "animeyubi" | "miruro" | "animex" | "anilight" | "anipm"
 
-// 1. Search for an anime
+// UNIVERSAL ROUTING: if you already know the AniList ID (e.g. 154587 =
+// Frieren), use "al:154587" as the id on ANY provider — the backend resolves
+// it via title search. /search is only needed when you don't know the ID.
+const ANILIST_ID = "al:154587";
+
+// 1. (Optional) Search for an anime by title — only if you don't know the AniList ID
 const search = await fetch(
   \`\${BASE}/search?q=frieren&provider=\${provider}\`
 ).then((r) => r.json());
@@ -261,21 +268,21 @@ console.log("Found:", anime.title.preferred);
 
 // 2. Fetch full metadata (auto-enriched with AniList data)
 const info = await fetch(
-  \`\${BASE}/info?id=\${anime.id}&provider=\${provider}\`
+  \`\${BASE}/info?id=\${ANILIST_ID}&provider=\${provider}\`
 ).then((r) => r.json());
 console.log("Synopsis:", info.description);
 console.log("Episodes:", info.totalEpisodes);
 
 // 3. Get the episode list
 const episodes = await fetch(
-  \`\${BASE}/episodes?id=\${anime.id}&provider=\${provider}\`
+  \`\${BASE}/episodes?id=\${ANILIST_ID}&provider=\${provider}\`
 ).then((r) => r.json());
 const episode = episodes[0];
 console.log("First episode:", episode.number, episode.title);
 
 // 4. Resolve playable stream URLs for episode 1
 const sources = await fetch(
-  \`\${BASE}/sources?id=\${anime.id}&ep=1&server=kite&type=sub&provider=\${provider}\`
+  \`\${BASE}/sources?id=\${ANILIST_ID}&ep=1&server=kite&type=sub&provider=\${provider}\`
 ).then((r) => r.json());
 
 // 5. Drop the master URL into an HLS player
@@ -289,9 +296,14 @@ console.log("Play this:", hls.url);
                   code: `import requests
 
 BASE = "https://your-deployment.example.com/api/scrape"
-PROVIDER = "animetsu"  # or "anikuro" | "animeyubi"
+PROVIDER = "animetsu"  # or "anikuro" | "animeyubi" | "miruro" | "animex" | "anilight" | "anipm"
 
-# 1. Search
+# UNIVERSAL ROUTING: if you already know the AniList ID (e.g. 154587 =
+# Frieren), use "al:154587" as the id on ANY provider — the backend resolves
+# it via title search. /search is only needed when you don't know the ID.
+ANILIST_ID = "al:154587"
+
+# 1. (Optional) Search — only if you don't know the AniList ID
 search = requests.get(f"{BASE}/search", params={
     "q": "frieren",
     "provider": PROVIDER,
@@ -301,16 +313,16 @@ print(f"Found: {anime['title']['preferred']}")
 
 # 2. Metadata + episodes
 info = requests.get(f"{BASE}/info", params={
-    "id": anime["id"], "provider": PROVIDER,
+    "id": ANILIST_ID, "provider": PROVIDER,
 }).json()
 episodes = requests.get(f"{BASE}/episodes", params={
-    "id": anime["id"], "provider": PROVIDER,
+    "id": ANILIST_ID, "provider": PROVIDER,
 }).json()
 print(f"Episodes: {len(episodes)}")
 
 # 3. Stream sources for episode 1
 sources = requests.get(f"{BASE}/sources", params={
-    "id": anime["id"], "ep": 1, "server": "kite",
+    "id": ANILIST_ID, "ep": 1, "server": "kite",
     "type": "sub", "provider": PROVIDER,
 }).json()
 
@@ -320,17 +332,17 @@ print(f"Play this URL: {master['url']}")`,
                 {
                   label: "curl",
                   language: "bash",
-                  code: `# 1. Search
+                  code: `# 1. Search (optional — skip if you already know the AniList ID)
 curl "https://your-deployment.example.com/api/scrape/search?q=frieren&provider=animetsu"
 
-# 2. Info (id comes from step 1)
-curl "https://your-deployment.example.com/api/scrape/info?id=12345&provider=animetsu"
+# 2. Info — use the universal AniList ID "al:154587" (Frieren)
+curl "https://your-deployment.example.com/api/scrape/info?id=al:154587&provider=animetsu"
 
 # 3. Episodes
-curl "https://your-deployment.example.com/api/scrape/episodes?id=12345&provider=animetsu"
+curl "https://your-deployment.example.com/api/scrape/episodes?id=al:154587&provider=animetsu"
 
 # 4. Sources (ep=1, server=kite, type=sub)
-curl "https://your-deployment.example.com/api/scrape/sources?id=12345&ep=1&server=kite&type=sub&provider=animetsu"
+curl "https://your-deployment.example.com/api/scrape/sources?id=al:154587&ep=1&server=kite&type=sub&provider=animetsu"
 
 # 5. The first source URL is already proxied — pipe it into mpv / ffplay:
 curl -s "https://your-deployment.example.com/api/scrape/sources?id=12345&ep=1&server=kite&type=sub&provider=animetsu" \\
@@ -339,6 +351,100 @@ curl -s "https://your-deployment.example.com/api/scrape/sources?id=12345&ep=1&se
                 },
               ]}
             />
+          </section>
+
+          {/* ---------------------------------------------------------------- */}
+          {/* UNIVERSAL ROUTING                                                 */}
+          {/* ---------------------------------------------------------------- */}
+          <section id="universal-routing" className="scroll-mt-20 py-10">
+            <h2 className="mb-3 text-2xl font-bold text-white">Universal Routing</h2>
+            <p className="mb-4 text-zinc-400">
+              The biggest source of confusion in a multi-provider scraper is that
+              every provider has its own native id format. Animetsu uses 24-char
+              Mongo ObjectIds (<code className="font-mono text-zinc-400">6989b8a029cf95f4eb03b500</code>);
+              anikuro uses numerics (<code className="font-mono text-zinc-400">4231</code>);
+              miruro, animex, and anilight use AniList IDs natively; anipm uses
+              its own composite (<code className="font-mono text-zinc-400">anipm:6351:frieren-beyond-...</code>).
+              A user looking at the docs has no idea what to plug in.
+            </p>
+            <div className="mb-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4 text-sm">
+              <strong className="font-semibold text-emerald-300">The solution:</strong>{" "}
+              <span className="text-zinc-300">
+                Every endpoint that takes an <code className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-emerald-400">id</code> parameter
+                accepts the universal format <code className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-emerald-400">al:{"{anilistId}"}</code>.
+                The backend resolves it to the provider's native id automatically —
+                you never have to know or care what the native id is.
+              </span>
+            </div>
+            <p className="mb-3 text-zinc-400">
+              Pick any anime on{" "}
+              <a
+                href="https://anilist.co/search/anime"
+                target="_blank"
+                rel="noreferrer"
+                className="text-emerald-400 hover:underline"
+              >
+                AniList
+              </a>{" "}
+              — the numeric id in the URL (e.g.{" "}
+              <code className="font-mono text-zinc-400">anilist.co/anime/154587</code>) is
+              the AniList ID. Prefix it with <code className="font-mono text-zinc-400">al:</code> and
+              you have a universal id that works on every provider.
+            </p>
+            <CodeBlock
+              language="text"
+              label="ID formats accepted by every endpoint"
+              code={`al:154587                       ← universal, works on EVERY provider
+al:154587:sousou-no-frieren     ← anilight/anipm composite (passthrough)
+6989b8a029cf95f4eb03b500        ← animetsu native id (also accepted)
+4231                            ← anikuro native id (also accepted)
+anipm:6351:frieren-beyond-journey-end  ← anipm native id (also accepted)`}
+            />
+            <h4 className="mb-2 mt-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">
+              How resolution works
+            </h4>
+            <p className="mb-3 text-zinc-400">
+              When you pass <code className="font-mono text-zinc-400">al:154587</code> on
+              a provider that doesn't natively index by AniList ID (animetsu, anikuro,
+              animeyubi, anipm), the backend:
+            </p>
+            <ol className="mb-4 space-y-2 text-sm text-zinc-400 list-decimal pl-6">
+              <li>Fetches the AniList media document for that ID (cached 30 min).</li>
+              <li>Collects candidate titles: english, romaji, native, synonyms.</li>
+              <li>Runs the provider's <code className="font-mono text-zinc-400">search()</code> with each candidate in priority order.</li>
+              <li>Picks the first hit (preferring results whose <code className="font-mono text-zinc-400">anilistId</code> matches).</li>
+              <li>Caches the resolved native id for 30 min so subsequent calls on the same provider+anime are instant.</li>
+            </ol>
+            <p className="mb-3 text-zinc-400">
+              For providers that natively index by AniList ID (miruro, animex, anilight),
+              the <code className="font-mono text-zinc-400">al:{"{anilistId}"}</code> form
+              is passed straight through with zero overhead.
+            </p>
+            <h4 className="mb-2 mt-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">
+              The same anime, three providers, one id
+            </h4>
+            <CodeBlock
+              language="bash"
+              label="Frieren (AniList 154587) on every provider"
+              code={`# Animetsu (Mongo ObjectId under the hood)
+curl ".../api/scrape/sources?id=al:154587&ep=1&provider=animetsu"
+
+# Anikuro (numeric id under the hood)
+curl ".../api/scrape/sources?id=al:154587&ep=1&provider=anikuro"
+
+# Ani.pm (anipm:{seriesId}:{slug} under the hood)
+curl ".../api/scrape/sources?id=al:154587&ep=1&provider=anipm"
+
+# Miruro (al:154587 is its native format — zero resolution overhead)
+curl ".../api/scrape/sources?id=al:154587&ep=1&provider=miruro"`}
+            />
+            <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm text-amber-200">
+              <strong className="font-semibold">Tip:</strong> To explicitly inspect what
+              native id the resolver picked (and which title it matched on), hit the{" "}
+              <code className="font-mono">/api/scrape/resolve</code> endpoint documented below.
+              It returns the full resolution trace — useful for debugging "why doesn't this
+              anime resolve on provider X".
+            </div>
           </section>
 
           {/* ---------------------------------------------------------------- */}
@@ -550,7 +656,10 @@ console.log(res.results[0].title.preferred);`,
               <ul className="mt-2 space-y-1">
                 <li>
                   <code className="text-emerald-400">animetsu</code> — does not
-                  return <code className="font-mono text-zinc-400">anilistId</code> in search results.
+                  return <code className="font-mono text-zinc-400">anilistId</code> in
+                  search results, but you can still query it with the universal{" "}
+                  <code className="font-mono text-zinc-400">al:{"{anilistId}"}</code>{" "}
+                  ID format — the backend auto-resolves it via title search.
                 </li>
                 <li>
                   <code className="text-emerald-400">anikuro</code> — returns
@@ -658,12 +767,16 @@ console.log(res.results[0].title.preferred);`,
             <CodeTabs
               tabs={[
                 {
-                  label: "curl",
+                  label: "curl (AniList ID)",
+                  code: `curl "https://your-deployment.example.com/api/scrape/info?id=al:154587&provider=animetsu"`,
+                },
+                {
+                  label: "curl (native ID)",
                   code: `curl "https://your-deployment.example.com/api/scrape/info?id=14682&provider=animetsu"`,
                 },
                 {
                   label: "Skip enrichment",
-                  code: `curl "https://your-deployment.example.com/api/scrape/info?id=14682&provider=animetsu&enrich=0"`,
+                  code: `curl "https://your-deployment.example.com/api/scrape/info?id=al:154587&provider=animetsu&enrich=0"`,
                 },
               ]}
             />
@@ -751,7 +864,7 @@ console.log(res.results[0].title.preferred);`,
             <CodeBlock
               language="bash"
               label="Request"
-              code={`curl "https://your-deployment.example.com/api/scrape/episodes?id=14682&provider=animetsu"`}
+              code={`curl "https://your-deployment.example.com/api/scrape/episodes?id=al:154587&provider=animetsu"`}
             />
             <h4 className="mb-2 mt-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">
               Response
@@ -827,7 +940,7 @@ console.log(res.results[0].title.preferred);`,
             <CodeBlock
               language="bash"
               label="Request"
-              code={`curl "https://your-deployment.example.com/api/scrape/servers?id=14682&ep=1&provider=animetsu"`}
+              code={`curl "https://your-deployment.example.com/api/scrape/servers?id=al:154587&ep=1&provider=animetsu"`}
             />
             <h4 className="mb-2 mt-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">
               Response (per provider)
@@ -922,13 +1035,17 @@ console.log(res.results[0].title.preferred);`,
             <CodeTabs
               tabs={[
                 {
-                  label: "curl",
+                  label: "curl (AniList ID)",
+                  code: `curl "https://your-deployment.example.com/api/scrape/sources?id=al:154587&ep=1&server=kite&type=sub&provider=animetsu"`,
+                },
+                {
+                  label: "curl (native ID)",
                   code: `curl "https://your-deployment.example.com/api/scrape/sources?id=14682&ep=1&server=kite&type=sub&provider=animetsu"`,
                 },
                 {
                   label: "JavaScript",
                   code: `const sources = await fetch(
-  "/api/scrape/sources?id=14682&ep=1&server=kite&type=sub&provider=animetsu"
+  "/api/scrape/sources?id=al:154587&ep=1&server=kite&type=sub&provider=animetsu"
 ).then((r) => r.json());
 
 // Pick the master playlist for adaptive quality
@@ -1141,6 +1258,107 @@ if (Hls.isSupported()) {
           </EndpointCard>
 
           {/* ---------------------------------------------------------------- */}
+          {/* RESOLVE                                                           */}
+          {/* ---------------------------------------------------------------- */}
+          <EndpointCard
+            id="resolve"
+            method="GET"
+            path="/api/scrape/resolve?anilist={anilistId}&provider={provider}"
+            title="Resolve AniList ID"
+            description="Resolves an AniList ID to the provider's native anime id. Useful for figuring out what id to pass to /sources on a given provider, checking whether a provider has a given anime before doing a full /sources lookup, or debugging the universal AniList routing. If `provider` is omitted, resolves across ALL providers in parallel and returns a map of { providerId: ResolveResult | null }."
+          >
+            <ParamTable
+              params={[
+                {
+                  name: "anilist",
+                  type: "number",
+                  required: true,
+                  description: "AniList ID (e.g. 154587 for Frieren).",
+                },
+                {
+                  name: "provider",
+                  type: "enum",
+                  default: "(all)",
+                  description: "One of: animetsu, anikuro, animeyubi, miruro, animex, anilight, anipm. If omitted, resolves across all providers in parallel.",
+                },
+              ]}
+            />
+            <CodeTabs
+              tabs={[
+                {
+                  label: "Single provider",
+                  code: `curl "https://your-deployment.example.com/api/scrape/resolve?anilist=154587&provider=animetsu"`,
+                },
+                {
+                  label: "All providers",
+                  code: `curl "https://your-deployment.example.com/api/scrape/resolve?anilist=154587"`,
+                },
+              ]}
+            />
+            <h4 className="mb-2 mt-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">
+              Response
+            </h4>
+            <CodeBlock
+              language="json"
+              label="200 OK (single provider)"
+              code={`{
+  "anilistId": 154587,
+  "provider": "animetsu",
+  "anilist": {
+    "id": 154587,
+    "idMal": 52991,
+    "title": {
+      "romaji": "Sousou no Frieren",
+      "english": "Frieren: Beyond Journey's End",
+      "native": "葬送のフリーレン"
+    },
+    "synonyms": ["Frieren: Beyond Journey's End"],
+    "coverImage": { "large": "https://s4.anilist.co/..." },
+    "seasonYear": 2023,
+    "format": "TV"
+  },
+  "resolved": {
+    "nativeId": "6989b8a029cf95f4eb03b500",
+    "anilistId": 154587,
+    "provider": "animetsu",
+    "matchedTitle": "Frieren: Beyond Journey's End",
+    "strategy": "title-search",
+    "triedTitles": [
+      "Frieren: Beyond Journey's End",
+      "Sousou no Frieren",
+      "葬送のフリーレン"
+    ]
+  }
+}`}
+            />
+            <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 text-sm text-zinc-400">
+              <strong className="text-zinc-200">Strategy values:</strong>
+              <ul className="mt-2 space-y-1">
+                <li>
+                  <code className="font-mono text-emerald-400">passthrough</code> —
+                  the provider natively accepts <code className="font-mono text-zinc-400">al:{"{id}"}</code> (miruro, animex, anilight).
+                </li>
+                <li>
+                  <code className="font-mono text-emerald-400">title-search</code> —
+                  the backend ran the provider's search with AniList candidate titles and matched.
+                </li>
+                <li>
+                  <code className="font-mono text-emerald-400">cache-hit</code> —
+                  resolution was served from the in-memory 30-min cache.
+                </li>
+              </ul>
+            </div>
+            <p className="mt-3 text-sm text-zinc-500">
+              Cached for 5 min. When <code className="font-mono text-zinc-400">provider</code> is
+              omitted, the response's <code className="font-mono text-zinc-400">resolved</code> field
+              is an object keyed by provider id, each value being a{" "}
+              <code className="font-mono text-zinc-400">ResolveResult</code> or{" "}
+              <code className="font-mono text-zinc-400">null</code> if the provider doesn't have
+              that anime.
+            </p>
+          </EndpointCard>
+
+          {/* ---------------------------------------------------------------- */}
           {/* RECENT                                                            */}
           {/* ---------------------------------------------------------------- */}
           <EndpointCard
@@ -1325,7 +1543,26 @@ curl "https://your-deployment.example.com/api/proxy/m3u8?url=https%3A%2F%2Fcdn.m
             <CodeBlock
               language="typescript"
               filename="types.ts"
-              code={`export type ProviderId = "animetsu" | "anikuro" | "animeyubi" | "miruro" | "animex";
+              code={`export type ProviderId =
+  | "animetsu"
+  | "anikuro"
+  | "animeyubi"
+  | "miruro"
+  | "animex"
+  | "anilight"
+  | "anipm";
+
+/**
+ * Universal ID formats — accepted by EVERY endpoint that takes an \`id\`.
+ *
+ *   al:{anilistId}              ← universal, works on every provider
+ *   al:{anilistId}:{slug}       ← anilight / anipm composite (passthrough)
+ *   {provider-native-id}        ← provider's own internal id (also accepted)
+ *
+ * Resolution is automatic: pass al:154587 to /sources on ANY provider and
+ * the backend looks up the AniList title, searches that provider's catalog,
+ * and resolves the native id for you. See the "Universal Routing" section.
+ */
 
 export interface UnifiedSearchResult {
   id: string;
@@ -1513,6 +1750,31 @@ export interface UnifiedSources {
                 <ul className="space-y-1 text-sm text-zinc-400">
                   <li>• Added <code className="font-mono text-zinc-300">anikuro</code> provider with 11 upstream providers.</li>
                   <li>• AniList enrichment auto-triggered when provider exposes anilistId.</li>
+                </ul>
+              </div>
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-300">
+                    v1.3.0
+                  </span>
+                  <span className="text-sm text-zinc-500">2026-06-27</span>
+                </div>
+                <ul className="space-y-1 text-sm text-zinc-300">
+                  <li>• Universal AniList ID routing — every endpoint now accepts{" "}
+                    <code className="font-mono text-emerald-300">al:{"{anilistId}"}</code> as
+                    the <code className="font-mono text-zinc-300">id</code> parameter, resolved
+                    automatically per-provider (title-search + 30-min cache).</li>
+                  <li>• New{" "}
+                    <code className="font-mono text-emerald-300">/api/scrape/resolve</code>{" "}
+                    endpoint — explicitly inspect what native id the resolver picked.</li>
+                  <li>• Ani.pm (<code className="font-mono text-zinc-300">anipm</code>) 7th
+                    provider — Vega MP4 + Onyx HLS + Vidnest + MegaPlay, all servers scraped,
+                    m3u8 first / MP4 second / iframe last.</li>
+                  <li>• Animex (<code className="font-mono text-zinc-300">animex</code>) and{" "}
+                    Anilight (<code className="font-mono text-zinc-300">anilight</code>) providers
+                    added — Cloudflare-bypassed HLS via curl + megaplay.buzz pipeline.</li>
+                  <li>• Raw payload now exposed on every <code className="font-mono text-zinc-300">/sources</code>{" "}
+                    response — full upstream JSON, every server, every CDN host, every URL.</li>
                 </ul>
               </div>
               <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
