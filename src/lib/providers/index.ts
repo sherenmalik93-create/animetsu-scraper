@@ -13,6 +13,8 @@ import { miruroProvider } from "./miruro";
 import { animexProvider } from "./animex";
 import { anilightProvider } from "./anilight";
 import { anipmProvider } from "./anipm";
+import { mkissaProvider } from "./mkissa";
+import { animeverseProvider } from "./animeverse";
 
 export const providers: Record<ProviderId, Provider> = {
   animetsu: animetsuProvider,
@@ -22,6 +24,8 @@ export const providers: Record<ProviderId, Provider> = {
   animex: animexProvider,
   anilight: anilightProvider,
   anipm: anipmProvider,
+  mkissa: mkissaProvider,
+  animeverse: animeverseProvider,
 };
 
 export const providerList: Provider[] = Object.values(providers);
@@ -42,5 +46,7 @@ export {
   animexProvider,
   anilightProvider,
   anipmProvider,
+  mkissaProvider,
+  animeverseProvider,
 };
 export * from "./types";
