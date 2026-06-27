@@ -9,7 +9,7 @@ import { ApiTester } from "@/components/docs/api-tester";
 export const metadata = {
   title: "API Docs — Animetsu Scraper",
   description:
-    "Complete REST API reference for the multi-provider anime scraping backend. 10 endpoints across 3 providers (animetsu, anikuro, animeyubi) with AniList enrichment, CORS proxy, and raw response inspection.",
+    "Complete REST API reference for the multi-provider anime scraping backend. 10 endpoints across 7 providers (animetsu, anikuro, animeyubi, miruro, animex, anilight, anipm) with AniList enrichment, CORS proxy, and raw response inspection.",
 };
 
 const SIDEBAR_SECTIONS = [
@@ -169,7 +169,8 @@ export default function DocsPage() {
             </p>
             <p className="mb-4 text-zinc-400">
               Each provider wraps a different upstream site (animetsu.live,
-              anikuro.ru, animeyubi.com, miruro.to, animex.one), normalizes its response into the
+              anikuro.ru, animeyubi.com, miruro.to, animex.one, anilight.live,
+              ani.pm), normalizes its response into the
               unified TypeScript types documented below, and exposes the raw
               upstream JSON alongside the normalized data so you can inspect
               exactly what the provider returned. All HLS / MP4 / subtitle URLs
@@ -177,7 +178,7 @@ export default function DocsPage() {
               them directly.
             </p>
             <div className="grid gap-4 sm:grid-cols-3">
-              <StatCard label="Providers" value="5" sub="animetsu · anikuro · animeyubi · miruro · animex" />
+              <StatCard label="Providers" value="7" sub="animetsu · anikuro · animeyubi · miruro · animex · anilight · anipm" />
               <StatCard label="Endpoints" value="10" sub="REST · JSON · cached" />
               <StatCard label="Latency" value="<2s" sub="p50 for full search→play flow" />
             </div>
@@ -249,7 +250,7 @@ export default function DocsPage() {
                   label: "JavaScript",
                   language: "js",
                   code: `const BASE = "https://your-deployment.example.com/api/scrape";
-const provider = "animetsu"; // or "anikuro" | "animeyubi"
+const provider = "animetsu"; // or "anikuro" | "animeyubi" | "miruro" | "animex" | "anilight" | "anipm"
 
 // 1. Search for an anime
 const search = await fetch(
@@ -434,6 +435,30 @@ curl -s "https://your-deployment.example.com/api/scrape/sources?id=12345&ep=1&se
       "accent": "from-sky-500 to-indigo-500",
       "supportsDub": true,
       "defaultServer": "bonk"
+    },
+    {
+      "id": "animex",
+      "label": "Animex",
+      "description": "AniList-native catalog with flixcloud.cc embeds (sub + dual audio).",
+      "accent": "from-pink-500 to-rose-500",
+      "supportsDub": true,
+      "defaultServer": "flixcloud"
+    },
+    {
+      "id": "anilight",
+      "label": "Anilight",
+      "description": "AniList-native catalog · MegaPlay streams · Sub/Dub · Skip markers",
+      "accent": "from-amber-500 to-orange-500",
+      "supportsDub": true,
+      "defaultServer": "megaplay"
+    },
+    {
+      "id": "anipm",
+      "label": "Ani.pm",
+      "description": "Ani.pm — Vega MP4 + Onyx HLS + MegaPlay · sub & dub · all servers",
+      "accent": "from-indigo-500 to-violet-500",
+      "supportsDub": true,
+      "defaultServer": "onyx-hls"
     }
   ]
 }`}
@@ -465,7 +490,7 @@ curl -s "https://your-deployment.example.com/api/scrape/sources?id=12345&ep=1&se
                   name: "provider",
                   type: "enum",
                   default: "animetsu",
-                  description: "One of: animetsu, anikuro, animeyubi.",
+                  description: "One of: animetsu, anikuro, animeyubi, miruro, animex, anilight, anipm.",
                 },
               ]}
             />
@@ -557,9 +582,41 @@ console.log(res.results[0].title.preferred);`,
                   </a>{" "}
                   with flixcloud.cc embeds. Returns dual-audio (sub+dub) for most
                   recent releases. IDs are prefixed with{" "}
-                  <code className="font-mono text-zinc-400">al:</code>. Playback is
-                  via iframe — flixcloud uses encrypted stream URLs decrypted
-                  client-side by their own ArtPlayer.
+                  <code className="font-mono text-zinc-400">al:</code>. Server-side
+                  m3u8 extraction via WASM + PBKDF2 + AES-CBC when Cloudflare allows;
+                  iframe fallback otherwise.
+                </li>
+                <li>
+                  <code className="text-emerald-400">anilight</code> — REST API at{" "}
+                  <a
+                    href="https://anilight.live"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-emerald-400 hover:underline"
+                  >
+                    anilight.live
+                  </a>{" "}
+                  with megaplay.buzz HLS streams. Sub + dub, intro/outro skip
+                  markers, VTT subtitles. IDs are{" "}
+                  <code className="font-mono text-zinc-400">al:{"{anilistId}"}:{"{slug}"}</code>.
+                  Cloudflare-bypassed via curl.
+                </li>
+                <li>
+                  <code className="text-emerald-400">anipm</code> — wraps{" "}
+                  <a
+                    href="https://ani.pm"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-emerald-400 hover:underline"
+                  >
+                    ani.pm
+                  </a>{" "}
+                  and scrapes EVERY server the site exposes: Vega (MP4 file
+                  server), Onyx (HLS master with 1080p/720p/360p variants), Vidnest
+                  (iframe embed), and MegaPlay (HLS via megaplay.buzz). Source order
+                  in the response: <strong>m3u8 first, MP4 second, iframe last</strong>.
+                  IDs are{" "}
+                  <code className="font-mono text-zinc-400">anipm:{"{seriesId}"}:{"{slug}"}</code>.
                 </li>
               </ul>
             </div>
@@ -587,7 +644,7 @@ console.log(res.results[0].title.preferred);`,
                   name: "provider",
                   type: "enum",
                   default: "animetsu",
-                  description: "One of: animetsu, anikuro, animeyubi.",
+                  description: "One of: animetsu, anikuro, animeyubi, miruro, animex, anilight, anipm.",
                 },
                 {
                   name: "enrich",
@@ -687,7 +744,7 @@ console.log(res.results[0].title.preferred);`,
                   name: "provider",
                   type: "enum",
                   default: "animetsu",
-                  description: "One of: animetsu, anikuro, animeyubi.",
+                  description: "One of: animetsu, anikuro, animeyubi, miruro, animex, anilight, anipm.",
                 },
               ]}
             />
@@ -763,7 +820,7 @@ console.log(res.results[0].title.preferred);`,
                   name: "provider",
                   type: "enum",
                   default: "animetsu",
-                  description: "One of: animetsu, anikuro, animeyubi.",
+                  description: "One of: animetsu, anikuro, animeyubi, miruro, animex, anilight, anipm.",
                 },
               ]}
             />
@@ -858,7 +915,7 @@ console.log(res.results[0].title.preferred);`,
                   name: "provider",
                   type: "enum",
                   default: "animetsu",
-                  description: "One of: animetsu, anikuro, animeyubi.",
+                  description: "One of: animetsu, anikuro, animeyubi, miruro, animex, anilight, anipm.",
                 },
               ]}
             />
@@ -980,7 +1037,7 @@ if (Hls.isSupported()) {
                 { name: "ep", type: "number", required: true, description: "Episode number." },
                 { name: "server", type: "string", description: "Server id." },
                 { name: "type", type: "enum", default: "sub", description: "sub or dub." },
-                { name: "provider", type: "enum", default: "animetsu", description: "animetsu, anikuro, or animeyubi." },
+                { name: "provider", type: "enum", default: "animetsu", description: "animetsu, anikuro, animeyubi, miruro, animex, anilight, or anipm." },
               ]}
             />
             <CodeBlock

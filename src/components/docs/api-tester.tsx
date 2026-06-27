@@ -35,6 +35,12 @@ interface Field {
   default?: string;
   placeholder?: string;
   options?: string[];
+  /**
+   * When true, this field's options are fetched dynamically from
+   * /api/scrape/providers instead of being hardcoded in `options`.
+   * Used for the `provider` field on every endpoint that takes one.
+   */
+  dynamicProviders?: boolean;
   /** Hide this field unless this endpoint is /sources (it's only used there) */
   onlyForSources?: boolean;
 }
@@ -49,6 +55,21 @@ interface EndpointDef {
   /** When true, hitting Send will also spawn a MediaPlayer below the response */
   launchesPlayer?: boolean;
 }
+
+/**
+ * Static fallback list — used until /api/scrape/providers resolves.
+ * Updated to include every provider: animetsu, anikuro, animeyubi,
+ * miruro, animex, anilight, anipm.
+ */
+const PROVIDER_OPTIONS = [
+  "animetsu",
+  "anikuro",
+  "animeyubi",
+  "miruro",
+  "animex",
+  "anilight",
+  "anipm",
+];
 
 const ENDPOINTS: EndpointDef[] = [
   {
@@ -72,7 +93,7 @@ const ENDPOINTS: EndpointDef[] = [
         label: "Provider",
         kind: "enum",
         default: "animetsu",
-        options: ["animetsu", "anikuro", "animeyubi"],
+        dynamicProviders: true,
       },
     ],
   },
@@ -83,13 +104,13 @@ const ENDPOINTS: EndpointDef[] = [
     path: "/api/scrape/info",
     description: "Get full metadata for a single anime, optionally enriched with AniList data.",
     fields: [
-      { name: "id", label: "Anime ID", kind: "string", required: true, placeholder: "14682" },
+      { name: "id", label: "Anime ID", kind: "string", required: true, placeholder: "14682 or al:154587 or anipm:6351:slug" },
       {
         name: "provider",
         label: "Provider",
         kind: "enum",
         default: "animetsu",
-        options: ["animetsu", "anikuro", "animeyubi"],
+        dynamicProviders: true,
       },
       { name: "enrich", label: "Enrich (0 or 1)", kind: "string", default: "1", placeholder: "1" },
     ],
@@ -101,13 +122,13 @@ const ENDPOINTS: EndpointDef[] = [
     path: "/api/scrape/episodes",
     description: "Get the full episode list for an anime.",
     fields: [
-      { name: "id", label: "Anime ID", kind: "string", required: true, placeholder: "14682" },
+      { name: "id", label: "Anime ID", kind: "string", required: true, placeholder: "14682 or al:154587 or anipm:6351:slug" },
       {
         name: "provider",
         label: "Provider",
         kind: "enum",
         default: "animetsu",
-        options: ["animetsu", "anikuro", "animeyubi"],
+        dynamicProviders: true,
       },
     ],
   },
@@ -118,14 +139,14 @@ const ENDPOINTS: EndpointDef[] = [
     path: "/api/scrape/servers",
     description: "Get available streaming servers for an episode.",
     fields: [
-      { name: "id", label: "Anime ID", kind: "string", required: true, placeholder: "14682" },
+      { name: "id", label: "Anime ID", kind: "string", required: true, placeholder: "14682 or al:154587 or anipm:6351:slug" },
       { name: "ep", label: "Episode", kind: "number", required: true, placeholder: "1" },
       {
         name: "provider",
         label: "Provider",
         kind: "enum",
         default: "animetsu",
-        options: ["animetsu", "anikuro", "animeyubi"],
+        dynamicProviders: true,
       },
     ],
   },
@@ -135,11 +156,11 @@ const ENDPOINTS: EndpointDef[] = [
     method: "GET",
     path: "/api/scrape/sources",
     description:
-      "Resolve playable stream URLs. The response feeds straight into the player below.",
+      "Resolve playable stream URLs (m3u8 + mp4 + iframe). The response feeds straight into the player below.",
     fields: [
-      { name: "id", label: "Anime ID", kind: "string", required: true, placeholder: "14682" },
+      { name: "id", label: "Anime ID", kind: "string", required: true, placeholder: "14682 or al:154587 or anipm:6351:slug" },
       { name: "ep", label: "Episode", kind: "number", required: true, placeholder: "1" },
-      { name: "server", label: "Server", kind: "string", placeholder: "kite (leave blank for default)" },
+      { name: "server", label: "Server", kind: "string", placeholder: "(leave blank for default)" },
       {
         name: "type",
         label: "Audio",
@@ -152,7 +173,7 @@ const ENDPOINTS: EndpointDef[] = [
         label: "Provider",
         kind: "enum",
         default: "animetsu",
-        options: ["animetsu", "anikuro", "animeyubi"],
+        dynamicProviders: true,
       },
     ],
     launchesPlayer: true,
@@ -162,9 +183,9 @@ const ENDPOINTS: EndpointDef[] = [
     label: "Raw Upstream",
     method: "GET",
     path: "/api/scrape/raw",
-    description: "Get the raw upstream JSON the provider returned, before normalization.",
+    description: "Get the raw upstream JSON the provider returned, before normalization. Includes every server scraped.",
     fields: [
-      { name: "id", label: "Anime ID", kind: "string", required: true, placeholder: "14682" },
+      { name: "id", label: "Anime ID", kind: "string", required: true, placeholder: "14682 or al:154587 or anipm:6351:slug" },
       { name: "ep", label: "Episode", kind: "number", required: true, placeholder: "1" },
       { name: "server", label: "Server", kind: "string", placeholder: "(optional)" },
       {
@@ -179,7 +200,7 @@ const ENDPOINTS: EndpointDef[] = [
         label: "Provider",
         kind: "enum",
         default: "animetsu",
-        options: ["animetsu", "anikuro", "animeyubi"],
+        dynamicProviders: true,
       },
     ],
   },
@@ -241,6 +262,31 @@ export function ApiTester() {
     for (const f of endpoint.fields) init[f.name] = f.default ?? "";
     setValues(init);
   }, [endpoint]);
+
+  // ---------------------------------------------------------------
+  // Fetch provider list once on mount so every endpoint's `provider`
+  // dropdown is always in sync with what's actually registered on
+  // the server. Falls back to PROVIDER_OPTIONS if the fetch fails.
+  // ---------------------------------------------------------------
+  const [providers, setProviders] = useState<string[]>(PROVIDER_OPTIONS);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/scrape/providers")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d) return;
+        const list = Array.isArray(d?.providers)
+          ? d.providers.map((p: { id: string }) => p.id).filter(Boolean)
+          : null;
+        if (list && list.length > 0) setProviders(list as string[]);
+      })
+      .catch(() => {
+        /* keep fallback list */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -425,7 +471,7 @@ export function ApiTester() {
                       <span className="ml-1 text-zinc-600">optional</span>
                     )}
                   </Label>
-                  {f.kind === "enum" && f.options ? (
+                  {f.kind === "enum" && (f.options || f.dynamicProviders) ? (
                     <Select
                       value={values[f.name] ?? ""}
                       onValueChange={(v) => setValues((s) => ({ ...s, [f.name]: v }))}
@@ -434,7 +480,7 @@ export function ApiTester() {
                         <SelectValue placeholder={f.placeholder} />
                       </SelectTrigger>
                       <SelectContent>
-                        {f.options.map((opt) => (
+                        {(f.dynamicProviders ? providers : f.options || []).map((opt) => (
                           <SelectItem key={opt} value={opt}>
                             {opt}
                           </SelectItem>
@@ -489,10 +535,12 @@ export function ApiTester() {
               <div className="mb-1.5 font-medium text-zinc-300">Quick examples:</div>
               <div className="flex flex-wrap gap-1.5">
                 {[
-                  { label: "Frieren · animetsu · ep 1", values: { id: "14682", ep: "1", server: "kite", type: "sub", provider: "animetsu" } },
+                  { label: "Frieren · animetsu · ep 1", values: { id: "6989b8a029cf95f4eb03b500", ep: "1", server: "kite", type: "sub", provider: "animetsu" } },
                   { label: "Frieren · animeyubi · ep 1", values: { id: "", ep: "1", server: "kwik-mp4", type: "sub", provider: "animeyubi" } },
                   { label: "Frieren · miruro · ep 1", values: { id: "al:154587", ep: "1", server: "pewe", type: "sub", provider: "miruro" } },
                   { label: "Slime S4 · animex · ep 1", values: { id: "al:182205", ep: "1", server: "flixcloud", type: "sub", provider: "animex" } },
+                  { label: "Frieren · anilight · ep 1", values: { id: "al:154587:sousou-no-frieren", ep: "1", server: "megaplay", type: "sub", provider: "anilight" } },
+                  { label: "Frieren · anipm · ep 1", values: { id: "anipm:6351:frieren-beyond-journey-s-end-c6fbj", ep: "1", server: "megaplay", type: "sub", provider: "anipm" } },
                 ].map((ex) => (
                   <button
                     key={ex.label}
@@ -505,6 +553,8 @@ export function ApiTester() {
               </div>
               <p className="mt-2 text-[11px] text-zinc-600">
                 Note: anime IDs differ per provider. Search first to find the right ID for your chosen provider.
+                animetsu uses Mongo ObjectIds; miruro/animex use <code>al:{"{anilistId}"}</code>; anilight uses
+                <code> al:{"{anilistId}"}:{"{slug}"}</code>; anipm uses <code>anipm:{"{seriesId}"}:{"{slug}"}</code>.
               </p>
             </div>
           )}

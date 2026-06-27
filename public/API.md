@@ -3,7 +3,7 @@
 A unified REST API for searching anime catalogs, fetching episode lists, and
 resolving playable stream URLs across multiple providers.
 
-**Version:** 1.2.0  
+**Version:** 1.4.0  
 **Base URL:** `https://your-deployment.example.com/api/scrape`  
 **Auth:** None (self-host behind your own gateway)  
 **Format:** JSON only
@@ -38,16 +38,16 @@ The canonical flow is: **search → info → episodes → sources**.
 curl "https://your-deployment.example.com/api/scrape/search?q=frieren&provider=animetsu"
 
 # 2. Get info (id comes from step 1)
-curl "https://your-deployment.example.com/api/scrape/info?id=14682&provider=animetsu"
+curl "https://your-deployment.example.com/api/scrape/info?id=6989b8a029cf95f4eb03b500&provider=animetsu"
 
 # 3. Get episodes
-curl "https://your-deployment.example.com/api/scrape/episodes?id=14682&provider=animetsu"
+curl "https://your-deployment.example.com/api/scrape/episodes?id=6989b8a029cf95f4eb03b500&provider=animetsu"
 
 # 4. Get sources for episode 1 (server=kite, type=sub)
-curl "https://your-deployment.example.com/api/scrape/sources?id=14682&ep=1&server=kite&type=sub&provider=animetsu"
+curl "https://your-deployment.example.com/api/scrape/sources?id=6989b8a029cf95f4eb03b500&ep=1&server=kite&type=sub&provider=animetsu"
 
 # 5. The first source URL is already proxied — pipe it into mpv / ffplay
-curl -s "https://your-deployment.example.com/api/scrape/sources?id=14682&ep=1&server=kite&type=sub&provider=animetsu" \
+curl -s "https://your-deployment.example.com/api/scrape/sources?id=6989b8a029cf95f4eb03b500&ep=1&server=kite&type=sub&provider=animetsu" \
   | jq -r '.sources[] | select(.isMaster) | .url' \
   | xargs mpv
 ```
@@ -103,6 +103,35 @@ print(f"Play this URL: {master['url']}")
 | `animetsu` | Animetsu | Soft sub · Multi quality · Cloudflare-fronted | Yes | `kite` |
 | `anikuro` | Anikuro | 11 upstream providers · Sub/Dub · AniList IDs native | Yes | `animeverse` |
 | `animeyubi` | Animeyubi | AnimePahe mirror · Sub/Dub · Kwik embeds | Yes | `kwik-mp4` |
+| `miruro` | Miruro | AniList-native · 7 streaming providers · Sub/Dub · Skip markers | Yes | `bonk` |
+| `animex` | Animex | AniList-native catalog with flixcloud.cc embeds (sub + dual audio) | Yes | `flixcloud` |
+| `anilight` | Anilight | AniList-native catalog · MegaPlay streams · Sub/Dub · Skip markers | Yes | `megaplay` |
+| `anipm` | Ani.pm | Ani.pm — Vega MP4 + Onyx HLS + MegaPlay · sub & dub · all servers | Yes | `onyx-hls` |
+
+### Per-provider ID formats
+
+| Provider | ID format | Example |
+|----------|-----------|---------|
+| `animetsu` | Mongo ObjectId | `6989b8a029cf95f4eb03b500` |
+| `anikuro` | numeric or `al:{anilistId}` | `12345` or `al:154587` |
+| `animeyubi` | slug | `sousou-no-frieren` |
+| `miruro` | `al:{anilistId}` | `al:154587` |
+| `animex` | `al:{anilistId}` | `al:182205` |
+| `anilight` | `al:{anilistId}:{slug}` | `al:154587:sousou-no-frieren` |
+| `anipm` | `anipm:{seriesId}:{slug}` | `anipm:6351:frieren-beyond-journey-s-end-c6fbj` |
+
+### Per-provider source types
+
+Every provider returns a `sources[]` array in `/sources` and `/raw`. Each entry has a `type` field:
+
+| Type | Meaning | Player handling |
+|------|---------|-----------------|
+| `master` | HLS master playlist (m3u8 with multiple quality variants) | Drop into hls.js — quality picker comes free |
+| `hls` | HLS variant playlist | Drop into hls.js |
+| `mp4` | Direct MP4 file (range-supported) | Use `<video>` directly |
+| `iframe` | Embed URL (Cloudflare-protected) | Use `<iframe>` — user's browser solves any challenge |
+
+**anipm** returns sources in priority order: m3u8 first, MP4 second, iframe last.
 
 ---
 
@@ -150,7 +179,7 @@ Search a provider's catalog.
 {
   "results": [
     {
-      "id": "14682",
+      "id": "6989b8a029cf95f4eb03b500",
       "title": { "romaji": "Sousou no Frieren", "english": "Frieren: Beyond Journey's End", "native": "葬送のフリーレン" },
       "coverImage": { "large": "https://..." },
       "description": "Frieren, an elven mage...",
@@ -192,7 +221,7 @@ Get the full metadata document for a single anime. Auto-enriches with AniList da
 
 ```json
 {
-  "id": "14682",
+  "id": "6989b8a029cf95f4eb03b500",
   "anilistId": 154587,
   "malId": 52991,
   "title": { "romaji": "...", "english": "...", "native": "..." },
@@ -241,7 +270,7 @@ Get the full episode list for an anime.
   {
     "number": 1,
     "displayNumber": "1",
-    "sourceId": "14682",
+    "sourceId": "6989b8a029cf95f4eb03b500",
     "title": "The Journey's End",
     "description": "After a ten-year journey...",
     "thumbnail": "https://...",
@@ -357,7 +386,7 @@ Returns the raw upstream JSON the provider's API returned, before normalization.
 ```json
 {
   "provider": "animeyubi",
-  "animeId": "14682",
+  "animeId": "6989b8a029cf95f4eb03b500",
   "episode": 1,
   "server": "kwik-mp4",
   "streamType": "sub",
@@ -401,7 +430,7 @@ Get the most recently added anime episodes from the animetsu upstream. Animetsu-
   "hasNextPage": true,
   "results": [
     {
-      "id": "14682",
+      "id": "6989b8a029cf95f4eb03b500",
       "title": { "romaji": "Sousou no Frieren", "preferred": "Frieren" },
       "cover_image": { "large": "https://..." },
       "episode": 28,

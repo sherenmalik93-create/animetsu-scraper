@@ -494,7 +494,19 @@ export const anipmProvider: Provider = {
       );
     }
 
-    const sources: UnifiedStreamSource[] = [];
+    // -------------------------------------------------------------------
+    // Source-bucket strategy — keep HLS / MP4 / iframe in separate arrays
+    // then concatenate at the end so the player sees them in priority order:
+    //   1. m3u8 (master playlists)   ← PRIMARY
+    //   2. mp4 (direct file streams) ← SECONDARY
+    //   3. iframe (embeds)            ← LAST-RESORT FALLBACK
+    // Per user instruction: "import m3u mainly and mp4 ... dont need if
+    // playing or not ok" — we include EVERY server we scraped, regardless
+    // of whether we know it'll play. The player decides what works.
+    // -------------------------------------------------------------------
+    const hlsSources: UnifiedStreamSource[] = [];
+    const mp4Sources: UnifiedStreamSource[] = [];
+    const iframeSources: UnifiedStreamSource[] = [];
     const subtitles: UnifiedSubtitle[] = [];
 
     if (serversRes) {
@@ -504,22 +516,35 @@ export const anipmProvider: Provider = {
 
       for (const entry of list) {
         if (!entry.url) continue;
-        const isHls = entry.kind === "hls";
-        const isFile = entry.kind === "file";
-        const isEmbed = entry.kind === "embed";
+        const upstream = resolveAnipmUrl(entry.url);
 
-        if (isHls || isFile) {
-          const upstream = resolveAnipmUrl(entry.url);
-          sources.push({
+        if (entry.kind === "hls") {
+          // Onyx HLS master playlist — 1080p/720p/360p variants.
+          // Routed through /api/proxy/m3u8 so Cloudflare's referer check
+          // passes and the relative variant URIs get rewritten to absolute
+          // ani.pm URLs that re-proxy through this same route.
+          hlsSources.push({
             url: buildProxiedUrl(upstream, `${ANIPM_ORIGIN}/`),
-            type: isHls ? "master" : "mp4",
-            quality: isHls ? "auto" : "1080p",
-            isMaster: isHls,
+            type: "master",
+            quality: "auto",
+            isMaster: true,
             originalUrl: upstream,
             upstreamReferer: `${ANIPM_ORIGIN}/`,
           });
-        } else if (isEmbed) {
-          sources.push({
+        } else if (entry.kind === "file") {
+          // Vega MP4 — 251MB direct file with range support. Wrapped through
+          // the proxy too so the player gets CORS headers + Range passthrough.
+          mp4Sources.push({
+            url: buildProxiedUrl(upstream, `${ANIPM_ORIGIN}/`),
+            type: "mp4",
+            quality: "1080p",
+            originalUrl: upstream,
+            upstreamReferer: `${ANIPM_ORIGIN}/`,
+          });
+        } else if (entry.kind === "embed") {
+          // Vidnest iframe — passthrough; user's browser solves any
+          // Cloudflare challenge natively.
+          iframeSources.push({
             url: entry.url,
             type: "iframe",
             quality: "auto",
@@ -531,8 +556,11 @@ export const anipmProvider: Provider = {
     }
 
     // -------------------------------------------------------------------
-    // 2. MegaPlay HLS — same pipeline as the anilight provider.
-    //    The series doc gave us sub/dub embed URLs for every episode.
+    // MegaPlay HLS — same pipeline as the anilight provider.
+    //   The series doc gave us sub/dub embed URLs for every episode. We
+    //   probe megaplay's API for the matching variant, extract the m3u8
+    //   URL + subtitles + intro/outro skip markers, and route the m3u8
+    //   through /api/proxy/m3u8 with Referer: https://megaplay.buzz/.
     // -------------------------------------------------------------------
     const [_sid, _ep, subEmbedRaw, dubEmbedRaw] = ep.sourceId.split("|");
     const subEmbed = subEmbedRaw || "";
@@ -575,10 +603,22 @@ export const anipmProvider: Provider = {
         }
       }
 
-      // Always include the megaplay iframe as a fallback — even if m3u8
-      // extraction failed, the user's browser can play directly via
-      // megaplay's own player (Cloudflare Turnstile solves natively there).
-      sources.push({
+      // MegaPlay HLS goes to the FRONT of the hls bucket — it's the most
+      // reliable stream (Cloudflare doesn't challenge megaplay.buzz's CDN).
+      if (megaplayM3u8) {
+        hlsSources.unshift({
+          url: buildProxiedUrl(megaplayM3u8, MEGAPLAY_REFERER),
+          type: "master",
+          quality: "auto",
+          isMaster: true,
+          originalUrl: megaplayM3u8,
+          upstreamReferer: MEGAPLAY_REFERER,
+        });
+        subtitles.push(...megaplaySubtitles);
+      }
+
+      // MegaPlay iframe — last-resort fallback. Pushed to iframe bucket.
+      iframeSources.push({
         url: megaplayEmbed,
         type: "iframe",
         quality: "auto",
@@ -587,47 +627,89 @@ export const anipmProvider: Provider = {
       });
     }
 
-    // If megaplay HLS extraction succeeded, add it as a master source.
-    if (megaplayM3u8) {
-      sources.unshift({
-        url: buildProxiedUrl(megaplayM3u8, MEGAPLAY_REFERER),
-        type: "master",
-        quality: "auto",
-        isMaster: true,
-        originalUrl: megaplayM3u8,
-        upstreamReferer: MEGAPLAY_REFERER,
-      });
-      subtitles.push(...megaplaySubtitles);
-    }
+    // Final concatenation: HLS first, MP4 second, iframe last.
+    const sources = [...hlsSources, ...mp4Sources, ...iframeSources];
 
     // -------------------------------------------------------------------
     // Build the raw payload for the "Show raw response" panel.
+    // This is the FULL upstream payload — every server we scraped, every
+    // URL we resolved, every CDN host we touched. Returned verbatim via
+    // /api/scrape/raw so developers can inspect exactly what ani.pm gave us.
     // -------------------------------------------------------------------
+    const subServers = serversRes?.sub || [];
+    const dubServers = serversRes?.dub || [];
+
     const rawPayload = {
       provider: "anipm",
-      api: `${ANIPM_API}/anime/series/{id} + ${ANIPM_API}/anime/src/servers?title={slug}&ep={n} + ${MEGAPLAY_BASE}/api/{realid} + ${MEGAPLAY_BASE}/stream/getSourcesNew?id={episode_id}`,
+      api: {
+        series: `${ANIPM_API}/anime/series/${seriesId}`,
+        servers: slug
+          ? `${ANIPM_API}/anime/src/servers?title=${encodeURIComponent(slug)}&ep=${epNum}`
+          : null,
+        megaplay_variants: megaplayEmbed
+          ? `${MEGAPLAY_BASE}/api/${parseRealidFromEmbedUrl(megaplayEmbed)}`
+          : null,
+        megaplay_sources: megaplayEmbed ? `${MEGAPLAY_BASE}/stream/getSourcesNew?id={episode_id}` : null,
+      },
       animeId: id,
       episodeNumber: epNum,
       server: server || "auto",
       sourceType,
       seriesId,
       slug,
-      serversRes,
+
+      // -------------------------------------------------------------------
+      // FULL upstream server list as ani.pm returned it (unmodified).
+      // -------------------------------------------------------------------
+      upstream_servers: {
+        sub: subServers,
+        dub: dubServers,
+      },
+
+      // -------------------------------------------------------------------
+      // Per-server normalized breakdown — what we extracted from each.
+      // -------------------------------------------------------------------
+      servers_scraped: {
+        hls: hlsSources.map((s) => ({
+          url: s.originalUrl,
+          proxied_url: s.url,
+          referer: s.upstreamReferer,
+          kind: s.originalUrl?.includes("megaplay") ? "megaplay" : "anipm-onyx",
+        })),
+        mp4: mp4Sources.map((s) => ({
+          url: s.originalUrl,
+          proxied_url: s.url,
+          referer: s.upstreamReferer,
+        })),
+        iframe: iframeSources.map((s) => ({
+          url: s.originalUrl,
+          referer: s.upstreamReferer,
+        })),
+      },
+
+      // -------------------------------------------------------------------
+      // MegaPlay extraction diagnostics — full payload from getSourcesNew.
+      // -------------------------------------------------------------------
       megaplay: {
         embedUrl: megaplayEmbed,
         variantType: megaplayVariantType,
         m3u8: megaplayM3u8,
+        proxied_m3u8: megaplayM3u8 ? buildProxiedUrl(megaplayM3u8, MEGAPLAY_REFERER) : null,
         subtitles: megaplaySubtitles,
         intro: megaplayIntro,
         outro: megaplayOutro,
       },
+
+      // -------------------------------------------------------------------
+      // Final normalized output (what the player actually receives).
+      // -------------------------------------------------------------------
       normalized: {
         anilist_id: parseAnipmId(id).seriesId,
         episode: epNum,
         stream_type: megaplayVariantType,
         providers_scraped: [
-          ...(serversRes?.sub || []).map((e) => `${e.provider}/${e.kind}/sub`),
-          ...(serversRes?.dub || []).map((e) => `${e.provider}/${e.kind}/dub`),
+          ...subServers.map((e) => `${e.provider}/${e.kind}/sub`),
+          ...dubServers.map((e) => `${e.provider}/${e.kind}/dub`),
           ...(megaplayM3u8 ? ["megaplay/hls"] : []),
         ],
         cdn_hosts: Array.from(
@@ -643,6 +725,12 @@ export const anipmProvider: Provider = {
               .filter(Boolean) as string[]
           )
         ),
+        source_counts: {
+          hls: hlsSources.length,
+          mp4: mp4Sources.length,
+          iframe: iframeSources.length,
+          total: sources.length,
+        },
         is_default: true,
       },
     };
