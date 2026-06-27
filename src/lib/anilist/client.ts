@@ -178,6 +178,49 @@ const GET_MEDIA_BY_ID = `
   }
 `;
 
+const GET_MANGA_BY_ID = `
+  query ($id: Int) {
+    Media(id: $id, type: MANGA) {
+      id
+      idMal
+      title { romaji english native }
+      synonyms
+      description
+      averageScore
+      meanScore
+      popularity
+      favourites
+      trending
+      chapters
+      volumes
+      status
+      format
+      source
+      countryOfOrigin
+      genres
+      coverImage { large color }
+      bannerImage
+      characters(perPage: 12, sort: ROLE) {
+        nodes {
+          id
+          name { full native }
+        }
+      }
+      recommendations(perPage: 6, sort: RATING_DESC) {
+        nodes {
+          id
+          mediaRecommendation {
+            id
+            title { romaji english }
+            coverImage { large }
+            averageScore
+          }
+        }
+      }
+    }
+  }
+`;
+
 const SEARCH_MEDIA = `
   query ($search: String!, $perPage: Int) {
     Page(perPage: $perPage) {
@@ -192,6 +235,27 @@ const SEARCH_MEDIA = `
         episodes
         format
         seasonYear
+        status
+        genres
+      }
+    }
+  }
+`;
+
+const SEARCH_MANGA = `
+  query ($search: String!, $perPage: Int) {
+    Page(perPage: $perPage) {
+      media(search: $search, type: MANGA, sort: SEARCH_MATCH) {
+        id
+        idMal
+        title { romaji english native }
+        coverImage { large color }
+        bannerImage
+        averageScore
+        popularity
+        chapters
+        volumes
+        format
         status
         genres
       }
@@ -226,17 +290,28 @@ export async function getAniListMedia(anilistId: number): Promise<AniListMedia |
 
 export async function searchAniList(
   search: string,
+  type: "ANIME" | "MANGA" = "ANIME",
   perPage = 10
 ): Promise<AniListMedia[]> {
   if (!search.trim()) return [];
   try {
-    const data = await gql<{ Page: { media: AniListMedia[] } }>(SEARCH_MEDIA, {
+    const query = type === "MANGA" ? SEARCH_MANGA : SEARCH_MEDIA;
+    const data = await gql<{ Page: { media: AniListMedia[] } }>(query, {
       search,
       perPage,
     });
     return data.Page.media;
   } catch {
     return [];
+  }
+}
+
+export async function getAniListManga(anilistId: number): Promise<AniListMedia | null> {
+  try {
+    const data = await gql<{ Media: AniListMedia }>(GET_MANGA_BY_ID, { id: anilistId });
+    return data.Media;
+  } catch {
+    return null;
   }
 }
 

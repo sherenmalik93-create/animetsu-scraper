@@ -17,6 +17,7 @@ import { mkissaProvider } from "./mkissa";
 import { animeverseProvider } from "./animeverse";
 import { animedunyaProvider } from "./animedunya";
 import { animekhorProvider } from "./animekhor";
+import { onisagaProvider } from "./onisaga";
 
 export const providers: Record<ProviderId, Provider> = {
   animetsu: animetsuProvider,
@@ -30,6 +31,7 @@ export const providers: Record<ProviderId, Provider> = {
   animeverse: animeverseProvider,
   animedunya: animedunyaProvider,
   animekhor: animekhorProvider,
+  onisaga: onisagaProvider,
 };
 
 export const providerList: Provider[] = Object.values(providers);
@@ -54,5 +56,6 @@ export {
   animeverseProvider,
   animedunyaProvider,
   animekhorProvider,
+  onisagaProvider,
 };
 export * from "./types";

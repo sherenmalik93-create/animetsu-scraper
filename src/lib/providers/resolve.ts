@@ -268,6 +268,7 @@ export async function resolveAcrossAllProviders(
     "mkissa",
     "animedunya",
     "animekhor",
+    "onisaga",
   ];
   const entries = await Promise.all(
     providerIds.map(async (pid) => {

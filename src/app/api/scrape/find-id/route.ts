@@ -169,6 +169,7 @@ export async function GET(req: NextRequest) {
       "mkissa",
       "animedunya",
       "animekhor",
+      "onisaga",
     ];
 
     const providersResult: Record<string, unknown> = {};
