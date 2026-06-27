@@ -264,8 +264,20 @@ interface AnipmSearchResponse {
 /**
  * Parse the anipm id. Accepted formats:
  *   - "anipm:{seriesId}:{slug}"  → returns both
+ *   - "anipm:{seriesId}:"        → returns seriesId, slug from cache (slug
+ *                                  was empty in the id but may have been
+ *                                  populated by a prior getEpisodes/getInfo
+ *                                  call — ani.pm's search endpoint doesn't
+ *                                  return slugs, only the series doc does)
  *   - "anipm:{seriesId}"         → returns seriesId, slug from cache
  *   - "{seriesId}"               → returns seriesId only (treated as bare id)
+ *
+ * The slug-from-cache fallback is important because ani.pm's
+ * /api/anime/search endpoint returns `slug: null` for every result. The
+ * slug is only available from /api/anime/series/{id}. When the universal
+ * resolver resolves `al:{anilistId}` → `anipm:{seriesId}:` (empty slug),
+ * we need to either (a) have already cached the slug from a prior call,
+ * or (b) let the caller fetch the series doc to populate it.
  */
 function parseAnipmId(id: string): { seriesId: number | null; slug: string | null } {
   if (id.startsWith("anipm:")) {
@@ -273,10 +285,13 @@ function parseAnipmId(id: string): { seriesId: number | null; slug: string | nul
     const colonIdx = rest.indexOf(":");
     if (colonIdx > 0) {
       const seriesId = Number(rest.slice(0, colonIdx));
-      const slug = rest.slice(colonIdx + 1);
+      const slugFromId = rest.slice(colonIdx + 1);
+      // If the id has an explicit slug, use it. Otherwise fall back to the
+      // cache (populated by getInfo/getEpisodes which fetch the series doc).
+      const slug = slugFromId || (Number.isFinite(seriesId) ? slugBySeriesId.get(seriesId) ?? null : null);
       return {
         seriesId: Number.isFinite(seriesId) && seriesId > 0 ? seriesId : null,
-        slug: slug || null,
+        slug,
       };
     }
     const seriesId = Number(rest);

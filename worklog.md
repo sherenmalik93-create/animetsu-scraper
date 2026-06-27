@@ -84,3 +84,79 @@ Stage Summary:
 - Animex now does server-side m3u8 extraction (WASM + PBKDF2 + AES-CBC) when Cloudflare permits, with iframe fallback
 - Proxy route handles Cloudflare-protected hosts via streaming curl subprocess
 - Files changed: src/lib/providers/flixcloud-extract.ts (new), src/lib/providers/animex.ts (updated), src/app/api/proxy/m3u8/route.ts (updated)
+
+---
+Task ID: anipm-raw-scrape
+Agent: main
+Task: User asked: "make a docs for ach server for now anipm make different docs ok like different solly docs ok for now anipm first make scrape that scrape all server raw data all server not iframe shit ok make it. 2.in the animetsuru id fineder crate docs se it can go for all providers and shit"
+
+Work Log:
+- Audited existing state:
+    * /docs/anipm/page.tsx already exists (v1.3.0) — comprehensive standalone anipm docs
+    * /docs/id-finder/page.tsx already exists (v1.4.0) — universal ID Finder docs covering all 7 providers
+    * /api/scrape/raw endpoint exists — returns the `raw` payload from getSources (server URLs only, no actual probing)
+    * anipm provider's getSources already returns HLS + MP4 + iframe + megaplay diagnostics in raw payload
+- Identified gap: existing /api/scrape/raw just returns URLs from ani.pm's API response — doesn't actually FETCH each server URL. User explicitly asked for "scrape that scrape all server raw data all server not iframe shit" — i.e., actually probe every server (m3u8 content, MP4 file info), not just record URLs.
+- Built new endpoint /api/scrape/anipm-raw (src/app/api/scrape/anipm-raw/route.ts, ~440 lines):
+    * Calls provider.getSources() to enumerate all servers (HLS, MP4, iframe, megaplay)
+    * For each HLS server: actually fetches the m3u8 via curl (with full Sec-Ch-Ua / Sec-Fetch-* headers to bypass Cloudflare), parses it, returns:
+        - http_status, content_type
+        - raw_m3u8 (full playlist text, capped at 64KB to keep responses sane)
+        - raw_m3u8_truncated (flag if we hit the cap)
+        - is_master (true if #EXT-X-STREAM-INF present)
+        - variant_count (number of STREAM-INF entries)
+        - segment_count (number of #EXTINF entries — for media playlists)
+        - duration_seconds (sum of #EXTINF values, for media playlists)
+        - first_variant_url, first_segment_url (resolved to absolute)
+    * For each MP4 server: HEAD-probes via curl -I, returns:
+        - http_status, content_type, content_length, accept_ranges, last_modified, etag
+    * For each iframe: records URL as-is with note explaining why we don't probe (browser solves CF challenge natively)
+    * All probes run in parallel via Promise.all
+    * Returns grouped breakdown (hls/mp4/iframe), upstream_servers (raw ani.pm response), megaplay diagnostics, subtitles, skips, unified_sources, API URL trace
+- Fixed pre-existing slug resolution bug in anipm.ts:
+    * ani.pm's /api/anime/search returns slug:null for every result (only /api/anime/series/{id} returns the slug)
+    * When universal resolver resolved al:154587 → anipm:6351: (empty slug), parseAnipmId returned slug=null WITHOUT checking the in-process cache
+    * Fixed parseAnipmId: when id has empty slug segment, fall back to slugBySeriesId cache (populated by prior getEpisodes/getInfo calls)
+    * Now /api/scrape/anipm-raw returns 6 servers (3 HLS + 1 MP4 + 2 iframe) instead of just 2 (1 HLS + 1 iframe)
+- Updated /docs/anipm page to v1.5.0:
+    * Added "Deep Raw Scrape" sidebar entry under Endpoints
+    * Added prominent "New in v1.5.0" callout in hero section linking to #anipm-raw
+    * Added full EndpointCard for /api/scrape/anipm-raw with:
+        - ParamTable (id, ep, type, server)
+        - CodeTabs (curl AniList ID, curl native ID + dub, JavaScript example)
+        - Per-server probe shape table (master/mp4/iframe → which fields returned)
+        - Full response example (truncated JSON showing all 4 server types)
+        - "Why this exists" callout explaining difference from /api/scrape/raw
+    * Added new "Endpoint Comparison" reference section with table comparing /sources, /raw, /anipm-raw (probes servers? returns raw m3u8? returns MP4 headers? best for?)
+    * Updated existing /raw endpoint description to clarify it does NOT probe servers, with link to /anipm-raw
+- Updated /docs/id-finder page:
+    * Added new "Provider ID Formats" sidebar entry
+    * Added new section with comprehensive table showing all 7 providers:
+        - Provider name + label
+        - Native ID format (Mongo ObjectId, numeric, al:{id}, al:{id}:{slug}, anipm:{id}:{slug})
+        - Whether it accepts al:{id} natively (YES for miruro/animex/anilight, NO with title-search for others)
+        - Example native id for Frieren (AniList 154587)
+    * Universal ID callout explaining al:{anilistId} works on every endpoint
+    * Link to /docs/anipm for per-provider deep dives
+- Tested end-to-end:
+    * /api/scrape/anipm-raw?id=al:154587&ep=1 → 6 servers probed:
+        - [0] megaplay-hls: HTTP 200, master=true, 1 variant (1080p), raw_m3u8 captured
+        - [1] anipm-onyx-hls: HTTP 200, master=true, 3 variants (1080p/720p/360p)
+        - [2] anipm-onyx-hls: HTTP 200, master=true, 3 variants
+        - [3] file (Vega MP4): HTTP 200, content_length=251568229 (239MB), accept_ranges=bytes
+        - [4] iframe (Vidnest): URL recorded, note about browser solving CF
+        - [5] iframe (MegaPlay embed): URL recorded
+    * /api/scrape/anipm-raw?id=al:154587&ep=1&type=dub → same 6-server structure with dub variant
+    * All docs pages return 200: /docs (main), /docs/anipm, /docs/id-finder
+    * tsc clean (src/), npx next build succeeds — new /api/scrape/anipm-raw route registered as dynamic
+
+Stage Summary:
+- New endpoint: /api/scrape/anipm-raw — deep raw scrape that actually fetches every HLS playlist + HEAD-probes every MP4
+- Slug resolution bug fixed in anipm.ts: empty-slug ids now fall back to in-process cache populated by getEpisodes
+- /docs/anipm updated to v1.5.0 with new endpoint card + endpoint comparison table
+- /docs/id-finder enhanced with Provider ID Formats reference table covering all 7 providers
+- Files changed:
+    * src/app/api/scrape/anipm-raw/route.ts (NEW, ~440 lines)
+    * src/lib/providers/anipm.ts (parseAnipmId slug-from-cache fix, ~15 lines changed)
+    * src/app/docs/anipm/page.tsx (new EndpointCard + comparison section + hero callout, ~290 lines added)
+    * src/app/docs/id-finder/page.tsx (new Provider ID Formats section, ~115 lines added)
