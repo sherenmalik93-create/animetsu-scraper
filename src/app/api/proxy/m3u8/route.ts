@@ -90,8 +90,6 @@ const REFERER_BY_HOST: Array<{ match: RegExp; referer: string }> = [
   // AnimeKhor — Cloudflare-fronted Donghua streaming site (Themesia AnimeStream)
   { match: /animekhor\.org$/i, referer: "https://animekhor.org/" },
   { match: /animekhor\.xyz$/i, referer: "https://animekhor.org/" },
-  // OniSaga — Cloudflare-fronted manga reading site (Laravel + Livewire)
-  { match: /onisaga\.com$/i, referer: "https://onisaga.com/" },
 ];
 
 const DEFAULT_REFERERS = ["https://animetsu.live/", "https://www.miruro.to/"];

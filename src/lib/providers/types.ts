@@ -24,8 +24,7 @@ export type ProviderId =
   | "mkissa"
   | "animeverse"
   | "animedunya"
-  | "animekhor"
-  | "onisaga";
+  | "animekhor";
 
 export interface ProviderMeta {
   id: ProviderId;

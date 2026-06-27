@@ -109,7 +109,6 @@ const PROVIDERS = [
   { id: "mkissa",   label: "MKissa",          accent: "from-blue-500 to-cyan-500",       hint: "AllAnime Mongo ID" },
   { id: "animedunya", label: "AnimeDunya",    accent: "from-emerald-500 to-teal-600",    hint: "Slug-based" },
   { id: "animekhor", label: "AnimeKhor",      accent: "from-amber-500 to-orange-600",    hint: "Slug-based (Donghua)" },
-  { id: "onisaga",   label: "OniSaga",        accent: "from-red-600 to-orange-500",      hint: "Manga · Slug-based" },
 ] as const;
 
 type ProviderId = (typeof PROVIDERS)[number]["id"];
