@@ -55,6 +55,13 @@ const CURL_REQUIRED_HOSTS = [
  * expects (it usually 403s requests without the right Referer).
  */
 const REFERER_BY_HOST: Array<{ match: RegExp; referer: string }> = [
+  // --- Vidfast / VA Player CDN domains ---
+  { match: /nextgenmarketinghub\.site$/i, referer: "https://nextgencloudfabric.com/" },
+  { match: /nextgencloudfabric\.com$/i, referer: "https://vidsrc.pm/" },
+  { match: /vidapi\.cloud$/i, referer: "https://nextgencloudfabric.com/" },
+  { match: /streamdata\.vaplayer\.ru$/i, referer: "https://vidfast.pro/" },
+  { match: /vidfast\.pro$/i, referer: "https://vidfast.pro/" },
+  // --- Anime providers ---
   { match: /animetsu\.live$/i, referer: "https://animetsu.live/" },
   { match: /miruro\.to$/i, referer: "https://www.miruro.to/" },
   { match: /anikuro\.ru$/i, referer: "https://anikuro.ru/" },
